@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% from "_macros.html" import ca_tree, status, kind_badge %}
+{% block content %}
+{% if expiring %}
+<div class="flash warn"><strong>{{ expiring|length }} tanúsítvány lejár {{ notify_days }} napon belül (vagy nemrég lejárt):</strong>
+{% for it in expiring %}
+• <a href="{{ url_for('item', item_id=it.id) }}">{{ it.info.cn }}</a> ({{ it.kind_label }}) – {{ it.info.not_after[:10] }}{% if it.info.status == 'expired' %}, LEJÁRT{% else %}, {{ it.info.days_left }} nap{% endif %}{% endfor %}
+</div>
+{% endif %}
+{% for r in online_roots %}
+<div class="flash info">Tipp: a(z) <a href="{{ url_for('item', item_id=r.id) }}">{{ r.info.cn }}</a> root CA privát kulcsa online van.
+Ha a kiállított intermediate CA-k elegendők, érdemes a root kulcsot elmenteni és eltávolítani (a CA oldalán: „Offline kulcs”).</div>
+{% endfor %}
+<section class="card">
+  <div class="card-head">
+    <h2>Hitelesítésszolgáltatók (CA)</h2>
+    <a class="btn small" href="{{ url_for('backup') }}">Teljes mentés (zip)</a>
+  </div>
+  {% if roots %}
+    {{ ca_tree(roots, by_parent) }}
+  {% else %}
+    <p>Még nincs CA. <a href="{{ url_for('new', kind='root') }}">Hozz létre egy Root CA-t</a>
+       vagy <a href="{{ url_for('import_') }}">importálj egy meglévőt</a>.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <h2>Kiadott tanúsítványok</h2>
+    {% if leaves %}<span class="muted small" id="f_count">{{ leaves|length }} db</span>{% endif %}
+  </div>
+  {% if leaves %}
+  <form class="filters" id="filters" onsubmit="return false">
+    <input type="search" id="f_q" placeholder="Keresés: név, SAN, kiállító, sorozatszám…" autocomplete="off">
+    <select id="f_kind">
+      <option value="">minden típus</option>
+      <option value="server">Szerver</option>
+      <option value="client">mTLS kliens</option>
+    </select>
+    <select id="f_status">
+      <option value="">minden állapot</option>
+      <option value="valid">érvényes</option>
+      <option value="expiring">hamarosan lejár (&lt; 30 nap)</option>
+      <option value="expired">lejárt</option>
+      <option value="notyet">még nem érvényes</option>
+    </select>
+    <select id="f_issuer">
+      <option value="">minden kiállító</option>
+      {% for p in issuers %}
+        <option value="{{ p or '-' }}">{{ ca_names.get(p, '?') if p else 'külső / ismeretlen kiállító' }}</option>
+      {% endfor %}
+    </select>
+    <select id="f_source">
+      <option value="">minden forrás</option>
+      <option value="generated">generált</option>
+      <option value="csr">külső CSR</option>
+      <option value="imported">importált</option>
+    </select>
+    <label class="check"><input type="checkbox" id="f_hide_old"> megújított régiek elrejtése</label>
+    <button type="button" class="btn small" id="f_reset">Szűrők törlése</button>
+  </form>
+  <table id="leaf_table">
+    <thead><tr><th>Név (CN)</th><th>Típus</th><th>SAN</th><th>Kiállító</th><th>Lejárat</th><th></th></tr></thead>
+    <tbody>
+    {% for it in leaves %}
+      <tr data-kind="{{ it.kind }}" data-status="{{ it.info.status }}" data-source="{{ it.source }}"
+          data-issuer="{{ it.parent_id or '-' }}" data-old="{{ 1 if it.id in superseded else 0 }}"
+          data-search="{{ ([it.info.cn, it.info.subject, it.info.issuer, it.info.serial, it.id] + it.info.sans) | join(' ') | lower }}">
+        <td><a href="{{ url_for('item', item_id=it.id) }}">{{ it.info.cn }}</a>
+          {% if it.id in superseded %}<span class="badge grey" title="Van újabb példánya">megújítva</span>{% endif %}</td>
+        <td>{{ kind_badge(it) }}</td>
+        <td class="sans">{{ it.info.sans | map('replace', 'DNS:', '') | join(', ') }}</td>
+        <td class="muted">{{ it.info.issuer | replace(',', ', ') | truncate(60) }}</td>
+        <td>{{ it.info.not_after[:10] }} {{ status(it.info) }}</td>
+        <td class="nowrap">
+          <a class="btn small" href="{{ url_for('download', item_id=it.id, what='fullchain') }}">fullchain</a>
+          {% if it.has_key %}<a class="btn small" href="{{ url_for('download', item_id=it.id, what='key') }}">key</a>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted" id="f_empty" hidden>Nincs a szűrésnek megfelelő tanúsítvány.</p>
+  <script>
+  (function () {
+    const total = {{ leaves|length }};
+    const $ = id => document.getElementById(id);
+    const sel = {kind: $('f_kind'), status: $('f_status'), issuer: $('f_issuer'), source: $('f_source')};
+    const q = $('f_q'), hideOld = $('f_hide_old');
+    const rows = Array.from(document.querySelectorAll('#leaf_table tbody tr'));
+
+    function apply() {
+      const terms = q.value.toLowerCase().split(/\s+/).filter(Boolean);
+      let shown = 0;
+      rows.forEach(r => {
+        const ok = terms.every(t => r.dataset.search.includes(t))
+          && Object.entries(sel).every(([k, s]) => !s.value || r.dataset[k] === s.value)
+          && !(hideOld.checked && r.dataset.old === '1');
+        r.hidden = !ok;
+        if (ok) shown++;
+      });
+      $('f_count').textContent = shown === total ? `${total} db` : `${shown} / ${total} db`;
+      $('f_empty').hidden = shown > 0;
+      // állapot az URL-ben (újratöltés / vissza gomb után is megmarad)
+      const p = new URLSearchParams();
+      if (q.value) p.set('q', q.value);
+      Object.entries(sel).forEach(([k, s]) => s.value && p.set(k, s.value));
+      if (hideOld.checked) p.set('hide_old', '1');
+      history.replaceState(null, '', p.toString() ? '?' + p : location.pathname);
+    }
+
+    const init = new URLSearchParams(location.search);
+    q.value = init.get('q') || '';
+    Object.entries(sel).forEach(([k, s]) => {
+      const v = init.get(k);
+      if (v && [...s.options].some(o => o.value === v)) s.value = v;
+    });
+    hideOld.checked = init.get('hide_old') === '1';
+
+    q.addEventListener('input', apply);
+    Object.values(sel).forEach(s => s.addEventListener('change', apply));
+    hideOld.addEventListener('change', apply);
+    $('f_reset').addEventListener('click', () => {
+      q.value = ''; Object.values(sel).forEach(s => s.value = ''); hideOld.checked = false; apply(); q.focus();
+    });
+    document.addEventListener('keydown', e => {  // "/" -> keresőmező
+      if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); q.focus(); }
+    });
+    apply();
+  })();
+  </script>
+  {% else %}
+    <p class="muted">Még nincs kiadott tanúsítvány.</p>
+  {% endif %}
+</section>
+{% endblock %}

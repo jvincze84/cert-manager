@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status, kind_badge %}
+{% block title %}Értesítések{% endblock %}
+{% block content %}
+<section class="card">
+  <h2>Lejárati értesítések</h2>
+  <dl class="props">
+    <dt>Állapot</dt><dd>{% if enabled %}<span class="badge green">bekapcsolva</span>{% else %}<span class="badge grey">nincs csatorna beállítva</span>{% endif %}</dd>
+    <dt>Küszöb</dt><dd>{{ cfg.days }} nap (<code>NOTIFY_DAYS</code>)</dd>
+    <dt>Futás</dt><dd>naponta egyszer, {{ cfg.hour }} óra után (<code>NOTIFY_HOUR</code>, a konténer <code>TZ</code> időzónája szerint)</dd>
+    <dt>Webhook</dt><dd>{% if cfg.webhook_url %}<code>{{ cfg.webhook_url | truncate(60) }}</code>{% else %}<span class="muted">nincs (<code>NOTIFY_WEBHOOK_URL</code>)</span>{% endif %}</dd>
+    <dt>ntfy</dt><dd>{% if cfg.ntfy_url %}<code>{{ cfg.ntfy_url }}</code>{% if cfg.ntfy_token %} + token{% endif %}{% else %}<span class="muted">nincs (<code>NOTIFY_NTFY_URL</code>)</span>{% endif %}</dd>
+    <dt>Link az üzenetben</dt><dd>{% if cfg.public_url %}<code>{{ cfg.public_url }}</code>{% else %}<span class="muted">nincs (<code>PUBLIC_URL</code>)</span>{% endif %}</dd>
+    <dt>Utolsó futás</dt><dd>{% if state.last_run %}{{ state.last_run | replace('T', ' ') }} – {{ state.expiring }} lejáró,
+        {% if state.sent %}értesítés elküldve{% else %}nem ment ki értesítés{% endif %}
+        {% if state.errors %}<br><span class="badge red">hiba</span> {{ state.errors | join('; ') }}{% endif %}
+      {% else %}<span class="muted">még nem futott</span>{% endif %}</dd>
+    <dt>Prometheus</dt><dd><a href="{{ url_for('metrics') }}">/metrics</a> – <code>local_ca_cert_not_after_seconds</code></dd>
+  </dl>
+  <form method="post" class="buttons actions">
+    <button class="btn" name="action" value="run" type="submit">Ellenőrzés és küldés most</button>
+    <button class="btn" name="action" value="test" type="submit">Teszt értesítés</button>
+  </form>
+  <p class="muted small">A webhook JSON-t küld <code>text</code> (Slack/Mattermost), <code>content</code> (Discord), <code>title</code> és <code>certs</code> mezőkkel.
+    A már megújított tanúsítványok (azonos CN, típus és kiállító, későbbi lejárattal) nem szerepelnek.</p>
+</section>
+
+<section class="card">
+  <h3>Most lejáró tanúsítványok ({{ cfg.days }} napon belül)</h3>
+  {% if expiring %}
+  <table>
+    <thead><tr><th>Név</th><th>Típus</th><th>Lejárat</th></tr></thead>
+    <tbody>{% for it in expiring %}
+      <tr><td><a href="{{ url_for('item', item_id=it.id) }}">{{ it.info.cn }}</a></td><td>{{ kind_badge(it) }}</td><td>{{ it.info.not_after[:10] }} {{ status(it.info) }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+  {% else %}<p class="muted">Nincs.</p>{% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Új {{ KINDS[kind] }}{% endblock %}
+{% block content %}
+<section class="card">
+<h2>Új {{ KINDS[kind] }} {% if kind in ('server', 'client', 'intermediate') %}tanúsítvány{% endif %}</h2>
+
+{% if kind != 'root' and not cas %}
+  <div class="flash error">Nincs olyan CA, amelyhez privát kulcs tartozik.
+    <a href="{{ url_for('new', kind='root') }}">Hozz létre</a> vagy <a href="{{ url_for('import_') }}">importálj</a> egyet.</div>
+{% endif %}
+
+<form method="post" class="grid">
+  {% if kind != 'root' %}
+  <label class="full">Kiállító CA
+    <select name="parent_id" id="parent_id" required>
+      {% for c in cas %}
+        <option value="{{ c.id }}" {% if form.parent_id == c.id %}selected{% endif %}>
+          {{ c.info.cn }} ({{ c.kind_label }}, lejár: {{ c.info.not_after[:10] }})
+        </option>
+      {% endfor %}
+    </select>
+  </label>
+  {% endif %}
+
+  {% for key, label in DN_FIELDS %}
+  <label {% if key == 'CN' %}class="full"{% endif %}>{{ label }}{% if key == 'CN' %} *{% endif %}
+    <input name="{{ key }}" id="dn_{{ key }}" value="{{ form.get(key, '') }}" {% if key == 'CN' %}required autofocus{% endif %}
+      {% if key == 'C' %}maxlength="2" placeholder="HU"{% endif %}
+      {% if key == 'CN' and kind == 'server' %}placeholder="pl. nas.home.arpa vagy *.home.arpa"{% endif %}
+      {% if key == 'CN' and kind == 'client' %}placeholder="pl. laptop-jani vagy service-backup"{% endif %}
+      {% if key == 'CN' and kind == 'root' %}placeholder="pl. Local Arpa Root CA"{% endif %}>
+  </label>
+  {% endfor %}
+
+  {% if kind == 'server' %}
+  <label class="full">Subject Alternative Names (soronként vagy vesszővel)
+    <textarea name="sans" rows="4" placeholder="*.home.arpa&#10;home.arpa&#10;192.168.1.10">{{ form.get('sans', '') }}</textarea>
+    <small>A CN automatikusan bekerül. Wildcardhoz: <code>*.example.com</code> (és ha kell, <code>example.com</code> külön).
+      IP címek automatikusan <code>IP:</code> típusúak; explicit prefix is használható: <code>DNS:</code>, <code>IP:</code>.</small>
+  </label>
+  <label class="check full"><input type="checkbox" name="client_auth" value="1" {% if form.get('client_auth') %}checked{% endif %}>
+    Kliens hitelesítésre is (extendedKeyUsage: serverAuth, clientAuth) – pl. szolgáltatások közti mTLS-hez</label>
+  {% endif %}
+
+  {% if kind == 'client' %}
+  <label>E-mail (opcionális)
+    <input name="email" type="email" value="{{ form.get('email', '') }}">
+  </label>
+  <label>További SAN (opcionális)
+    <textarea name="sans" rows="2" placeholder="DNS:client.home.arpa&#10;URI:spiffe://home/backup">{{ form.get('sans', '') }}</textarea>
+  </label>
+  {% endif %}
+
+  <label>Kulcs típusa
+    <select name="key_type">
+      {% for k, v in KEY_TYPES.items() %}
+        <option value="{{ k }}" {% if form.get('key_type', 'rsa2048' if kind in ('server','client') else 'rsa4096') == k %}selected{% endif %}>{{ v[0] }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Érvényesség (nap)
+    <input name="days" type="number" min="1" max="36500"
+      value="{{ form.get('days') or {'root': 3650, 'intermediate': 1825, 'server': 397, 'client': 365}[kind] }}">
+    {% if kind == 'server' %}<small>Apple/Safari max. 825 napot fogad el, böngészőkben 397 a biztos.</small>{% endif %}
+  </label>
+
+  {% if kind in ('root', 'intermediate') %}
+  <label>pathlen (üres = korlátlan)
+    <input name="pathlen" type="number" min="0" max="10"
+      value="{{ form.get('pathlen', '' if kind == 'root' else '0') }}">
+    <small>{% if kind == 'intermediate' %}0 = ez a CA csak leaf certet adhat ki (ajánlott).{% else %}Root CA-nál általában üresen hagyjuk.{% endif %}</small>
+  </label>
+  {% endif %}
+
+  {% if kind == 'intermediate' %}
+  <label class="full">Name Constraints – engedélyezett névterek (ajánlott)
+    <textarea name="name_constraints" rows="3" placeholder="home.arpa&#10;local&#10;192.168.0.0/16&#10;10.0.0.0/8">{{ form.get('name_constraints', '') }}</textarea>
+    <small>Ha megadod, ez a CA <strong>csak</strong> ezekre a nevekre adhat ki olyan tanúsítványt, amit a kliensek elfogadnak.
+      Így ha a kulcs kiszivárog, akkor sem lehet vele pl. <code>google.com</code>-ra certet gyártani.
+      DNS: <code>home.arpa</code> (az aldomaineket is lefedi; <code>.home.arpa</code> = csak aldomainek),
+      IP: CIDR (<code>192.168.0.0/16</code>), e-mail: <code>email:home.arpa</code>.
+      Egy névtípust csak akkor korlátoz, ha szerepel benne ilyen típusú elem (pl. csak DNS megadásakor az IP-k szabadok).
+      Üresen hagyva nincs korlátozás.</small>
+  </label>
+  {% endif %}
+
+  <div class="full"><button class="btn primary" type="submit">Létrehozás</button></div>
+</form>
+</section>
+
+{% if kind != 'root' %}
+<script>
+const caDn = {{ cas | map(attribute='info') | map(attribute='dn') | list | tojson }};
+const caIds = {{ cas | map(attribute='id') | list | tojson }};
+const sel = document.getElementById('parent_id');
+let last = sel ? caDn[caIds.indexOf(sel.value)] : null;
+sel && sel.addEventListener('change', () => {
+  const dn = caDn[caIds.indexOf(sel.value)];
+  ['C', 'ST', 'L', 'O'].forEach(k => {
+    const el = document.getElementById('dn_' + k);
+    if (!el.value || (last && el.value === last[k])) el.value = dn[k] || '';
+  });
+  last = dn;
+});
+</script>
+{% endif %}
+{% endblock %}

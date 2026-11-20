@@ -1,0 +1,27 @@
+{% macro status(info) -%}
+  {%- if info.status == 'expired' -%}<span class="badge red">lejárt</span>
+  {%- elif info.status == 'notyet' -%}<span class="badge grey">még nem érvényes</span>
+  {%- elif info.status == 'expiring' -%}<span class="badge amber">{{ info.days_left }} nap</span>
+  {%- else -%}<span class="badge green">{{ info.days_left }} nap</span>{%- endif -%}
+{%- endmacro %}
+
+{% macro kind_badge(it) -%}
+  <span class="badge kind-{{ it.kind }}">{{ it.kind_label }}</span>
+  {%- if it.source == 'imported' %} <span class="badge grey">importált</span>{% endif -%}
+  {%- if it.source == 'csr' %} <span class="badge grey">külső CSR</span>{% endif -%}
+  {%- if it.kind in ('root', 'intermediate') and not it.has_key %} <span class="badge grey">nincs kulcs</span>{% endif -%}
+{%- endmacro %}
+
+{% macro ca_tree(nodes, by_parent) %}
+<ul class="tree">
+  {% for n in nodes if n.kind in ('root', 'intermediate') %}
+  <li>
+    <a href="{{ url_for('item', item_id=n.id) }}"><strong>{{ n.info.cn }}</strong></a>
+    {{ kind_badge(n) }} {{ status(n.info) }}
+    {% set leafs = by_parent.get(n.id, []) | selectattr('kind', 'in', ['server', 'client']) | list %}
+    {% if leafs %}<span class="muted">· {{ leafs|length }} kiadott cert</span>{% endif %}
+    {% if by_parent.get(n.id) %}{{ ca_tree(by_parent[n.id], by_parent) }}{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endmacro %}

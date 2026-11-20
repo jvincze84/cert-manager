@@ -1,0 +1,30 @@
+# Élő CA adatok: privát kulcsok, audit napló – SOHA ne kerüljön a repóba!
+data/
+
+# Helyi beállítások / titkok (minta: .env.example)
+.env
+docker-compose.override.yml
+
+# Biztonsági háló: kulcs- és cert fájlok sehol se kerüljenek be véletlenül
+*.pem
+*.key
+*.p12
+*.pfx
+*.csr
+*.crt
+*.der
+*.zip
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Szerkesztők / OS
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store

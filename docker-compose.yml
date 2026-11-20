@@ -1,0 +1,26 @@
+services:
+  local-ca:
+    build: .
+    image: local-ca-manager:latest
+    container_name: local-ca
+    restart: unless-stopped
+    ports:
+      # Élesben csak a reverse proxy felől legyen elérhető (pl. "127.0.0.1:${CA_PORT:-8485}:8080").
+      - "${CA_PORT:-8485}:8080"
+    # Minden beállítás a .env fájlból jön (minta és magyarázat: .env.example).
+    environment:
+      SECRET_KEY: "${SECRET_KEY:-change-me}"
+      DEFAULT_C: "${DEFAULT_C:-}"
+      DEFAULT_ST: "${DEFAULT_ST:-}"
+      DEFAULT_L: "${DEFAULT_L:-}"
+      DEFAULT_O: "${DEFAULT_O:-}"
+      TZ: "${TZ:-UTC}"
+      NOTIFY_DAYS: "${NOTIFY_DAYS:-30}"
+      NOTIFY_HOUR: "${NOTIFY_HOUR:-8}"
+      NOTIFY_WEBHOOK_URL: "${NOTIFY_WEBHOOK_URL:-}"
+      NOTIFY_NTFY_URL: "${NOTIFY_NTFY_URL:-}"
+      NOTIFY_NTFY_TOKEN: "${NOTIFY_NTFY_TOKEN:-}"
+      PUBLIC_URL: "${PUBLIC_URL:-}"
+      AUDIT_USER_HEADER: "${AUDIT_USER_HEADER:-}"
+    volumes:
+      - ./data:/data

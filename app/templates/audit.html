@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Audit napló{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="card-head">
+    <h2>Audit napló</h2>
+    <form method="get" class="inline">
+      <select name="action" onchange="this.form.submit()">
+        <option value="">minden művelet</option>
+        {% for k, v in ACTIONS.items() %}<option value="{{ k }}" {% if action == k %}selected{% endif %}>{{ v }}</option>{% endfor %}
+      </select>
+    </form>
+  </div>
+  <p class="muted small">Utolsó 1000 bejegyzés, legújabb elöl. Fájl: <code>/data/audit.log</code> (JSON Lines), a konténer logjában is megjelenik.
+    A felhasználónév a reverse proxy fejlécéből jön (<code>AUDIT_USER_HEADER</code>).</p>
+  {% if entries %}
+  <table>
+    <thead><tr><th>Időpont (UTC)</th><th>Művelet</th><th>Elem</th><th>Felhasználó</th><th>IP</th><th>Részletek</th></tr></thead>
+    <tbody>
+    {% for e in entries %}
+      <tr>
+        <td class="nowrap">{{ e.ts | replace('T', ' ') | replace('+00:00', '') }}</td>
+        <td>{{ ACTIONS.get(e.action, e.action) }}</td>
+        <td>{% if e.item_id %}<a href="{{ url_for('item', item_id=e.item_id) }}">{{ e.cn }}</a>{% else %}–{% endif %}</td>
+        <td>{{ e.user }}</td>
+        <td class="mono small">{{ e.ip }}</td>
+        <td class="small muted">
+          {%- for k, v in e.items() if k not in ('ts', 'action', 'user', 'ip', 'item_id', 'cn', 'kind') -%}
+            {{ k }}: {{ v | join(', ') if v is iterable and v is not string else v }}{% if not loop.last %}; {% endif %}
+          {%- endfor -%}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p class="muted">Még nincs bejegyzés.</p>
+  {% endif %}
+</section>
+{% endblock %}
