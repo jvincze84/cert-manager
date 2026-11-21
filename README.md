@@ -1,5 +1,10 @@
 # Local CA Manager
 
+## Screenshots
+
+<img width="1441" height="928" alt="opera_yL0Kvo3RbP" src="https://github.com/user-attachments/assets/a12c8d30-3f93-4f86-85fb-c0e9f6741e8a" />
+
+
 **English** | [Magyar](README.hu.md)
 
 A small self-hosted web UI for running your own private certificate authority (home lab, internal
