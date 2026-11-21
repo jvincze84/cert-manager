@@ -2,72 +2,72 @@
 {% from "_macros.html" import ca_tree, status, kind_badge %}
 {% block content %}
 {% if expiring %}
-<div class="flash warn"><strong>{{ expiring|length }} tanúsítvány lejár {{ notify_days }} napon belül (vagy nemrég lejárt):</strong>
+<div class="flash warn"><strong>{{ expiring|length }} certificate(s) expiring within {{ notify_days }} days (or recently expired):</strong>
 {% for it in expiring %}
-• <a href="{{ url_for('item', item_id=it.id) }}">{{ it.info.cn }}</a> ({{ it.kind_label }}) – {{ it.info.not_after[:10] }}{% if it.info.status == 'expired' %}, LEJÁRT{% else %}, {{ it.info.days_left }} nap{% endif %}{% endfor %}
+• <a href="{{ url_for('item', item_id=it.id) }}">{{ it.info.cn }}</a> ({{ it.kind_label }}) – {{ it.info.not_after[:10] }}{% if it.info.status == 'expired' %}, EXPIRED{% else %}, {{ it.info.days_left }} days{% endif %}{% endfor %}
 </div>
 {% endif %}
 {% for r in online_roots %}
-<div class="flash info">Tipp: a(z) <a href="{{ url_for('item', item_id=r.id) }}">{{ r.info.cn }}</a> root CA privát kulcsa online van.
-Ha a kiállított intermediate CA-k elegendők, érdemes a root kulcsot elmenteni és eltávolítani (a CA oldalán: „Offline kulcs”).</div>
+<div class="flash info">Tip: the private key of the <a href="{{ url_for('item', item_id=r.id) }}">{{ r.info.cn }}</a> root CA is online.
+If the issued intermediate CAs are enough, save the root key and remove it (on the CA page: "Offline key").</div>
 {% endfor %}
 <section class="card">
   <div class="card-head">
-    <h2>Hitelesítésszolgáltatók (CA)</h2>
-    <a class="btn small" href="{{ url_for('backup') }}">Teljes mentés (zip)</a>
+    <h2>Certificate authorities (CA)</h2>
+    <a class="btn small" href="{{ url_for('backup') }}">Full backup (zip)</a>
   </div>
   {% if roots %}
     {{ ca_tree(roots, by_parent) }}
   {% else %}
-    <p>Még nincs CA. <a href="{{ url_for('new', kind='root') }}">Hozz létre egy Root CA-t</a>
-       vagy <a href="{{ url_for('import_') }}">importálj egy meglévőt</a>.</p>
+    <p>No CA yet. <a href="{{ url_for('new', kind='root') }}">Create a root CA</a>
+       or <a href="{{ url_for('import_') }}">import an existing one</a>.</p>
   {% endif %}
 </section>
 
 <section class="card">
   <div class="card-head">
-    <h2>Kiadott tanúsítványok</h2>
-    {% if leaves %}<span class="muted small" id="f_count">{{ leaves|length }} db</span>{% endif %}
+    <h2>Issued certificates</h2>
+    {% if leaves %}<span class="muted small" id="f_count">{{ leaves|length }}</span>{% endif %}
   </div>
   {% if leaves %}
   <form class="filters" id="filters" onsubmit="return false">
-    <input type="search" id="f_q" placeholder="Keresés: név, SAN, kiállító, sorozatszám…" autocomplete="off">
+    <input type="search" id="f_q" placeholder="Search: name, SAN, issuer, serial…" autocomplete="off">
     <select id="f_kind">
-      <option value="">minden típus</option>
-      <option value="server">Szerver</option>
-      <option value="client">mTLS kliens</option>
+      <option value="">all types</option>
+      <option value="server">Server</option>
+      <option value="client">mTLS client</option>
     </select>
     <select id="f_status">
-      <option value="">minden állapot</option>
-      <option value="valid">érvényes</option>
-      <option value="expiring">hamarosan lejár (&lt; 30 nap)</option>
-      <option value="expired">lejárt</option>
-      <option value="notyet">még nem érvényes</option>
+      <option value="">all statuses</option>
+      <option value="valid">valid</option>
+      <option value="expiring">expiring soon (&lt; 30 days)</option>
+      <option value="expired">expired</option>
+      <option value="notyet">not yet valid</option>
     </select>
     <select id="f_issuer">
-      <option value="">minden kiállító</option>
+      <option value="">all issuers</option>
       {% for p in issuers %}
-        <option value="{{ p or '-' }}">{{ ca_names.get(p, '?') if p else 'külső / ismeretlen kiállító' }}</option>
+        <option value="{{ p or '-' }}">{{ ca_names.get(p, '?') if p else 'external / unknown issuer' }}</option>
       {% endfor %}
     </select>
     <select id="f_source">
-      <option value="">minden forrás</option>
-      <option value="generated">generált</option>
-      <option value="csr">külső CSR</option>
-      <option value="imported">importált</option>
+      <option value="">all sources</option>
+      <option value="generated">generated</option>
+      <option value="csr">external CSR</option>
+      <option value="imported">imported</option>
     </select>
-    <label class="check"><input type="checkbox" id="f_hide_old"> megújított régiek elrejtése</label>
-    <button type="button" class="btn small" id="f_reset">Szűrők törlése</button>
+    <label class="check"><input type="checkbox" id="f_hide_old"> hide renewed (old) ones</label>
+    <button type="button" class="btn small" id="f_reset">Clear filters</button>
   </form>
   <table id="leaf_table">
-    <thead><tr><th>Név (CN)</th><th>Típus</th><th>SAN</th><th>Kiállító</th><th>Lejárat</th><th></th></tr></thead>
+    <thead><tr><th>Name (CN)</th><th>Type</th><th>SAN</th><th>Issuer</th><th>Expires</th><th></th></tr></thead>
     <tbody>
     {% for it in leaves %}
       <tr data-kind="{{ it.kind }}" data-status="{{ it.info.status }}" data-source="{{ it.source }}"
           data-issuer="{{ it.parent_id or '-' }}" data-old="{{ 1 if it.id in superseded else 0 }}"
           data-search="{{ ([it.info.cn, it.info.subject, it.info.issuer, it.info.serial, it.id] + it.info.sans) | join(' ') | lower }}">
         <td><a href="{{ url_for('item', item_id=it.id) }}">{{ it.info.cn }}</a>
-          {% if it.id in superseded %}<span class="badge grey" title="Van újabb példánya">megújítva</span>{% endif %}</td>
+          {% if it.id in superseded %}<span class="badge grey" title="A newer copy exists">renewed</span>{% endif %}</td>
         <td>{{ kind_badge(it) }}</td>
         <td class="sans">{{ it.info.sans | map('replace', 'DNS:', '') | join(', ') }}</td>
         <td class="muted">{{ it.info.issuer | replace(',', ', ') | truncate(60) }}</td>
@@ -80,7 +80,7 @@ Ha a kiállított intermediate CA-k elegendők, érdemes a root kulcsot elmenten
     {% endfor %}
     </tbody>
   </table>
-  <p class="muted" id="f_empty" hidden>Nincs a szűrésnek megfelelő tanúsítvány.</p>
+  <p class="muted" id="f_empty" hidden>No certificates match the filter.</p>
   <script>
   (function () {
     const total = {{ leaves|length }};
@@ -99,9 +99,9 @@ Ha a kiállított intermediate CA-k elegendők, érdemes a root kulcsot elmenten
         r.hidden = !ok;
         if (ok) shown++;
       });
-      $('f_count').textContent = shown === total ? `${total} db` : `${shown} / ${total} db`;
+      $('f_count').textContent = shown === total ? `${total}` : `${shown} / ${total}`;
       $('f_empty').hidden = shown > 0;
-      // állapot az URL-ben (újratöltés / vissza gomb után is megmarad)
+      // state in the URL (survives reload / back button)
       const p = new URLSearchParams();
       if (q.value) p.set('q', q.value);
       Object.entries(sel).forEach(([k, s]) => s.value && p.set(k, s.value));
@@ -123,14 +123,14 @@ Ha a kiállított intermediate CA-k elegendők, érdemes a root kulcsot elmenten
     $('f_reset').addEventListener('click', () => {
       q.value = ''; Object.values(sel).forEach(s => s.value = ''); hideOld.checked = false; apply(); q.focus();
     });
-    document.addEventListener('keydown', e => {  // "/" -> keresőmező
+    document.addEventListener('keydown', e => {  // "/" -> search box
       if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); q.focus(); }
     });
     apply();
   })();
   </script>
   {% else %}
-    <p class="muted">Még nincs kiadott tanúsítvány.</p>
+    <p class="muted">No certificates issued yet.</p>
   {% endif %}
 </section>
 {% endblock %}

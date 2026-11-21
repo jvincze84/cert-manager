@@ -2,36 +2,36 @@
 {% block title %}Import{% endblock %}
 {% block content %}
 <section class="card">
-<h2>Tanúsítvány importálása</h2>
+<h2>Import certificates</h2>
 <p class="muted">
-  Importálható Root / Intermediate CA és sima szerver vagy kliens tanúsítvány is. A tanúsítvány mezőbe több PEM cert
-  is kerülhet (pl. <code>fullchain.pem</code>: cert + intermediate, vagy intermediate + root lánc). Mindegyik
-  importálódik, és a kiállítói kapcsolatok automatikusan felismerődnek. A privát kulcs ahhoz a certhez kerül,
-  amelyikhez tartozik. PKCS#12 (<code>.p12</code> / <code>.pfx</code>) fájl is feltölthető, a jelszavát a
-  „Kulcs jelszava” mezőbe írd.
+  You can import root / intermediate CAs as well as plain server or client certificates. The certificate field may
+  contain several PEM certificates (e.g. <code>fullchain.pem</code>: cert + intermediate, or an intermediate + root chain).
+  Each one is imported and issuer relationships are detected automatically. The private key is attached to the
+  certificate it belongs to. A PKCS#12 file (<code>.p12</code> / <code>.pfx</code>) can also be uploaded; enter its
+  password in the password field.
 </p>
 <ul class="muted small">
-  <li>Sima cert típusa az Extended Key Usage alapján: <code>serverAuth</code> → szerver, csak <code>clientAuth</code> → mTLS kliens.</li>
-  <li>Kívül kiadott cert (pl. Let's Encrypt) is importálható: ilyenkor nem kapcsolódik CA-hoz, de a lejárata figyelve lesz.</li>
-  <li>Root CA importálható kulcs nélkül is (offline root); jelszavas kulcs titkosítatlanul tárolódik.</li>
+  <li>The type of a plain certificate comes from its Extended Key Usage: <code>serverAuth</code> → server, only <code>clientAuth</code> → mTLS client.</li>
+  <li>Certificates from other CAs (e.g. Let's Encrypt) can be imported too: they are not linked to a CA, but their expiry is monitored.</li>
+  <li>A root CA can be imported without its key (offline root). Password-protected keys are stored unencrypted.</li>
 </ul>
 <form method="post" enctype="multipart/form-data" class="grid">
-  <label class="full">Tanúsítvány (PEM) – beillesztve
+  <label class="full">Certificate (PEM) – paste
     <textarea name="cert_pem" rows="8" placeholder="-----BEGIN CERTIFICATE-----"></textarea>
   </label>
-  <label class="full">…vagy fájlként (PEM / DER / PKCS#12)
+  <label class="full">…or upload a file (PEM / DER / PKCS#12)
     <input type="file" name="cert_file">
   </label>
-  <label class="full">Privát kulcs (PEM, opcionális) – beillesztve
+  <label class="full">Private key (PEM, optional) – paste
     <textarea name="key_pem" rows="6" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
   </label>
-  <label>…vagy fájlként
+  <label>…or upload a file
     <input type="file" name="key_file">
   </label>
-  <label>Kulcs / PKCS#12 jelszava (ha van)
+  <label>Key / PKCS#12 password (if any)
     <input type="password" name="password" autocomplete="off">
   </label>
-  <div class="full"><button class="btn primary" type="submit">Importálás</button></div>
+  <div class="full"><button class="btn primary" type="submit">Import</button></div>
 </form>
 </section>
 {% endblock %}

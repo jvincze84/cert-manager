@@ -5,9 +5,9 @@ services:
     container_name: local-ca
     restart: unless-stopped
     ports:
-      # Élesben csak a reverse proxy felől legyen elérhető (pl. "127.0.0.1:${CA_PORT:-8485}:8080").
+      # In production, make it reachable only from the reverse proxy (e.g. "127.0.0.1:${CA_PORT:-8485}:8080").
       - "${CA_PORT:-8485}:8080"
-    # Minden beállítás a .env fájlból jön (minta és magyarázat: .env.example).
+    # All settings come from the .env file (template with explanations: .env.example).
     environment:
       SECRET_KEY: "${SECRET_KEY:-change-me}"
       DEFAULT_C: "${DEFAULT_C:-}"

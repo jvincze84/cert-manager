@@ -1,11 +1,11 @@
-# Élő CA adatok: privát kulcsok, audit napló – SOHA ne kerüljön a repóba!
+# Live CA data: private keys, audit log – must NEVER be committed!
 data/
 
-# Helyi beállítások / titkok (minta: .env.example)
+# Local settings / secrets (template: .env.example)
 .env
 docker-compose.override.yml
 
-# Biztonsági háló: kulcs- és cert fájlok sehol se kerüljenek be véletlenül
+# Safety net: never commit key or cert files by accident, wherever they are
 *.pem
 *.key
 *.p12
@@ -22,7 +22,7 @@ __pycache__/
 venv/
 .pytest_cache/
 
-# Szerkesztők / OS
+# Editors / OS
 .idea/
 .vscode/
 *.swp

@@ -5,13 +5,9 @@
 <img width="1441" height="928" alt="opera_yL0Kvo3RbP" src="https://github.com/user-attachments/assets/a12c8d30-3f93-4f86-85fb-c0e9f6741e8a" />
 
 
-**English** | [Magyar](README.hu.md)
-
 A small self-hosted web UI for running your own private certificate authority (home lab, internal
 networks). It runs in Docker and uses Python/Flask plus the `openssl` CLI. There is no database:
 every certificate is a directory of plain PEM files with the exact `openssl.cnf` used to create it.
-
-> The user interface is in **Hungarian**.
 
 ## Quick start
 

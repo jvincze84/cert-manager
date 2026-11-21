@@ -1,21 +1,21 @@
 {% extends "base.html" %}
-{% block title %}Audit napló{% endblock %}
+{% block title %}Audit log{% endblock %}
 {% block content %}
 <section class="card">
   <div class="card-head">
-    <h2>Audit napló</h2>
+    <h2>Audit log</h2>
     <form method="get" class="inline">
       <select name="action" onchange="this.form.submit()">
-        <option value="">minden művelet</option>
+        <option value="">all actions</option>
         {% for k, v in ACTIONS.items() %}<option value="{{ k }}" {% if action == k %}selected{% endif %}>{{ v }}</option>{% endfor %}
       </select>
     </form>
   </div>
-  <p class="muted small">Utolsó 1000 bejegyzés, legújabb elöl. Fájl: <code>/data/audit.log</code> (JSON Lines), a konténer logjában is megjelenik.
-    A felhasználónév a reverse proxy fejlécéből jön (<code>AUDIT_USER_HEADER</code>).</p>
+  <p class="muted small">Last 1000 entries, newest first. File: <code>/data/audit.log</code> (JSON Lines), also written to the container log.
+    The user name comes from the reverse proxy header (<code>AUDIT_USER_HEADER</code>).</p>
   {% if entries %}
   <table>
-    <thead><tr><th>Időpont (UTC)</th><th>Művelet</th><th>Elem</th><th>Felhasználó</th><th>IP</th><th>Részletek</th></tr></thead>
+    <thead><tr><th>Time (UTC)</th><th>Action</th><th>Item</th><th>User</th><th>IP</th><th>Details</th></tr></thead>
     <tbody>
     {% for e in entries %}
       <tr>
@@ -34,7 +34,7 @@
     </tbody>
   </table>
   {% else %}
-    <p class="muted">Még nincs bejegyzés.</p>
+    <p class="muted">No entries yet.</p>
   {% endif %}
 </section>
 {% endblock %}

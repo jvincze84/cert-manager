@@ -40,7 +40,7 @@ def index():
              and (not i.get("parent_id") or i["parent_id"] not in ids)]
     leaves = [i for i in items if i["kind"] in ca.LEAF_KINDS]
     leaves.sort(key=lambda i: i["created"], reverse=True)
-    # régi, már megújított példányok (azonos típus + CN + kiállító, van későbbi lejáratú)
+    # old, already renewed copies (same type + CN + issuer, a later-expiring one exists)
     superseded = {i["id"] for i in leaves if any(
         o["id"] != i["id"] and o["kind"] == i["kind"] and o["info"]["cn"] == i["info"]["cn"]
         and o.get("parent_id") == i.get("parent_id")
@@ -74,10 +74,10 @@ def new(kind):
             return render_template("new.html", kind=kind, form=form, cas=cas), 400
         for w in warnings:
             flash(w, "warn")
-        flash(f"{ca.KINDS[kind]} tanúsítvány létrehozva.", "ok")
+        flash(f"{ca.KINDS[kind]} certificate created.", "ok")
         return redirect(url_for("item", item_id=item_id))
 
-    # előtöltés: ?from=<id> (újrakiadás) vagy ?parent=<id>
+    # prefill: ?from=<id> (re-issue) or ?parent=<id>
     form = dict(DEFAULT_DN)
     src = ca.load_item(request.args.get("from", ""))
     if src and src["kind"] == kind:
@@ -89,7 +89,7 @@ def new(kind):
     elif request.args.get("parent"):
         form["parent_id"] = request.args["parent"]
     if kind != "root" and not form.get("parent_id") and cas:
-        # alapértelmezés: a legutóbbi intermediate (leafnél), különben az első CA
+        # default: the latest intermediate (for leaves), otherwise the first CA
         pref = [c for c in cas if c["kind"] == "intermediate"] if kind in ca.LEAF_KINDS else []
         form["parent_id"] = (pref or cas)[-1]["id"]
     if not (src and src["kind"] == kind):
@@ -118,10 +118,10 @@ def sign():
         f = request.files.get("csr_file")
         data = f.read() if f and f.filename else form.get("csr_pem", "").encode()
         if f and f.filename and data.strip().startswith(b"-----"):
-            form["csr_pem"] = data.decode(errors="replace")  # fájlból is maradjon meg az űrlapon
+            form["csr_pem"] = data.decode(errors="replace")  # keep it on the form when uploaded as a file too
         try:
             if not data.strip():
-                raise ca.CAError("Add meg a CSR-t.")
+                raise ca.CAError("Provide a CSR.")
             if form.get("action") == "preview":
                 preview, csr_text = ca.csr_summary(data), _csr_text(data)
             else:
@@ -129,14 +129,14 @@ def sign():
                 audit.log("sign_csr", request, ca.load_item(item_id))
                 for w in warnings:
                     flash(w, "warn")
-                flash("CSR aláírva, tanúsítvány kiadva.", "ok")
+                flash("CSR signed, certificate issued.", "ok")
                 return redirect(url_for("item", item_id=item_id))
         except ca.CAError as e:
             flash(str(e), "error")
             return render_template("sign.html", form=form, cas=cas), 400
     else:
         src = ca.load_item(request.args.get("from", ""))
-        if src and src["has_csr"]:  # újra aláírás tárolt CSR-ből
+        if src and src["has_csr"]:  # re-sign from the stored CSR
             form.update({"csr_pem": ca.read_file(src["id"], "csr.pem").decode(),
                          "kind": src["kind"], "parent_id": src.get("parent_id") or "",
                          "days": str(src["params"].get("days", "")),
@@ -159,7 +159,7 @@ def import_():
         key_data = key.read() if key and key.filename else request.form.get("key_pem", "").encode()
         try:
             if not cert_data.strip():
-                raise ca.CAError("Add meg a tanúsítványt.")
+                raise ca.CAError("Provide a certificate.")
             ids, messages = ca.import_ca(cert_data, key_data, request.form.get("password"))
         except ca.CAError as e:
             flash(str(e), "error")
@@ -170,7 +170,7 @@ def import_():
             it = ca.load_item(i)
             audit.log("import", request, it, with_key=it["has_key"])
         if ids:
-            flash(f"{len(ids)} tanúsítvány importálva.", "ok")
+            flash(f"{len(ids)} certificate(s) imported.", "ok")
             return redirect(url_for("item", item_id=ids[-1]))
         return redirect(url_for("index"))
     return render_template("import.html")
@@ -199,7 +199,7 @@ def item(item_id):
 
 @app.get("/item/<item_id>/key")
 def view_key(item_id):
-    """A privát kulcs megjelenítése (külön kérés, hogy naplózható legyen)."""
+    """Show the private key (separate request so that it can be logged)."""
     it = ca.load_item(item_id)
     if not it or not it["has_key"]:
         abort(404)
@@ -264,7 +264,7 @@ def download_key_encrypted(item_id):
     pw, pw2 = request.form.get("password", ""), request.form.get("password2", "")
     try:
         if pw != pw2:
-            raise ca.CAError("A két jelszó nem egyezik.")
+            raise ca.CAError("The two passwords do not match.")
         data = ca.encrypted_key(item_id, pw)
     except ca.CAError as e:
         flash(str(e), "error")
@@ -280,16 +280,16 @@ def remove_key(item_id):
         abort(404)
     try:
         if (request.form.get("confirm_cn") or "").strip() != it["info"]["cn"]:
-            raise ca.CAError("A megerősítéshez pontosan a CA nevét (CN) kell beírni.")
+            raise ca.CAError("To confirm, type the exact CA name (CN).")
         if not request.form.get("saved"):
-            raise ca.CAError("Előbb mentsd el a kulcsot, és jelöld be, hogy megvan.")
+            raise ca.CAError("Save the key first and tick the box to confirm.")
         ca.remove_key(item_id)
     except ca.CAError as e:
         flash(str(e), "error")
         return redirect(url_for("item", item_id=item_id))
     audit.log("remove_key", request, it)
-    flash("A privát kulcs véglegesen eltávolítva, a CA mostantól offline. Új aláíráshoz "
-          "az Import oldalon add vissza a kulcsot (a cert + kulcs újraimportálásával).", "ok")
+    flash("The private key was permanently removed; the CA is now offline. To sign again, "
+          "restore the key on the Import page (re-import the cert + key).", "ok")
     return redirect(url_for("item", item_id=item_id))
 
 
@@ -302,7 +302,7 @@ def delete(item_id):
     except ca.CAError as e:
         flash(str(e), "error")
         return redirect(url_for("item", item_id=item_id))
-    flash("Törölve (a /data/trash könyvtárba került).", "ok")
+    flash("Deleted (moved to /data/trash).", "ok")
     return redirect(url_for("index"))
 
 
@@ -324,18 +324,18 @@ def notifications():
     if request.method == "POST":
         if request.form.get("action") == "test":
             errors = notify.send_test(request)
-            flash("\n".join(errors) if errors else "Teszt értesítés elküldve.",
+            flash("\n".join(errors) if errors else "Test notification sent.",
                   "error" if errors else "ok")
         else:
             r = notify.run_check(force=True, req=request)
             if r["errors"]:
-                flash("Hiba küldéskor:\n" + "\n".join(r["errors"]), "error")
+                flash("Sending failed:\n" + "\n".join(r["errors"]), "error")
             elif r["sent"]:
-                flash(f"Értesítés elküldve ({r['expiring']} tanúsítvány).", "ok")
+                flash(f"Notification sent ({r['expiring']} certificate(s)).", "ok")
             elif not notify.enabled():
-                flash(f"{r['expiring']} lejáró tanúsítvány, de nincs értesítési csatorna beállítva.", "warn")
+                flash(f"{r['expiring']} expiring certificate(s), but no notification channel is configured.", "warn")
             else:
-                flash("Nincs lejáró tanúsítvány, nem ment ki értesítés.", "ok")
+                flash("No expiring certificates, no notification sent.", "ok")
         return redirect(url_for("notifications"))
     cfg = notify.config()
     return render_template("notifications.html", cfg=cfg, enabled=notify.enabled(cfg),

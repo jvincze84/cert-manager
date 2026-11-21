@@ -1,140 +1,145 @@
 # Local CA Manager
 
-Webes saját CA kezelő Dockerben, otthoni hálózathoz. Python/Flask + `openssl` CLI.
-A felület és a hibaüzenetek **magyarul** vannak, ezt tartsuk meg. Hitelesítés szándékosan nincs,
-a szolgáltatás elé reverse proxy kerül.
+Self-hosted web UI for a private CA, running in Docker, for a home network. Python/Flask + the `openssl` CLI.
+Everything is in **English**: UI, error/flash messages, code comments, docs, generated `openssl.cnf`
+comments. (The app was originally Hungarian and translated in full; keep new text English.)
+The user talks to Claude in Hungarian. Authentication is intentionally absent; a reverse proxy sits in front.
 
-## Funkciók
+## Features
 
-- Root és intermediate CA generálása vagy importálása (PEM/DER, teljes lánc, titkosított kulcs, root kulcs nélkül is).
-- Sima szerver/kliens cert importja is (`import_ca`): PEM/DER/PKCS#12, fullchain + kulcs. Típus az EKU-ból
-  (`_leaf_kind`); az önaláírt, DNS/IP SAN-os cert akkor is leaf, ha CA:TRUE (az `openssl req -x509` így készíti).
-  Kívül kiadott cert (kiállító nincs a tárban) is importálható, a lejárata figyelve lesz.
-- Szerver cert (SAN, wildcard, opcionális `clientAuth`) és mTLS kliens cert generálása.
-- Kívül készült CSR aláírása (`/sign`), előnézettel és a tárolt CSR-ből újra aláírással.
-- Főoldal: CA fa + „Kiadott tanúsítványok” táblázat kliens oldali szűrővel (kereső több szóra, ÉS
-  kapcsolattal; típus, állapot, kiállító, forrás; megújított régiek elrejtése). A szűrő állapota az
-  URL query-ben van (`?q=…&kind=…`), a `/` billentyű a keresőre ugrik. A sorok `data-*` attribútumokat kapnak.
-- Megtekintés (`openssl -text`, PEM, CSR, config, kulcs; „Másolás” gombok a `base.html` közös JS-ével), letöltés (crt, der, key, csr, cnf, fullchain,
-  CA lánc, p12, zip), teljes mentés (`/backup.zip`), törlés a `data/trash/` könyvtárba.
-- Name Constraints az intermediate CA-n (DNS / IP CIDR / email), kiadás előtti ellenőrzéssel
-  (`check_name_constraints`, a lánc összes CA-jára, a hostnévszerű CN-t is nézi, mint az OpenSSL).
-- Offline CA kulcs: titkosított export (`encrypted_key`) + végleges eltávolítás (`remove_key`,
-  felülírás után törlés). Visszahozás az importtal (meglévő certhez hozzáadja a kulcsot).
-- Lejárat figyelés: főoldali sáv, napi értesítés webhook/ntfy (`notify.py`, háttérszál, naponta
-  egyszer `NOTIFY_HOUR` után, állapot: `data/notify-state.json`), `/notifications` oldal, `/metrics`.
-  A megújított certek (azonos kind + CN + parent, későbbi lejárat) kimaradnak (`expiring_items`).
-- Audit napló: `audit.py`, `data/audit.log` (JSON Lines) + stdout, `/audit` oldal, elemenkénti
-  előzmény. A privát kulcs nincs beágyazva az elem oldalába, külön `/item/<id>/key` kérés tölti be
-  (naplózva).
+- Generate or import root and intermediate CAs (PEM/DER, whole chain, encrypted key, root without key).
+- Import plain server/client certificates too (`import_ca`): PEM/DER/PKCS#12, fullchain + key. Type from the EKU
+  (`_leaf_kind`); a self-signed cert with a DNS/IP SAN is a leaf even if CA:TRUE (`openssl req -x509` makes those).
+  Certificates from other CAs (issuer not in the store) can be imported; their expiry is monitored.
+- Server certs (SANs, wildcard, optional `clientAuth`) and mTLS client certs.
+- Sign external CSRs (`/sign`), with preview and re-signing from the stored CSR.
+- Main page: CA tree + "Issued certificates" table with a client-side filter (multi-word search with AND;
+  type, status, issuer, source; hide renewed ones). Filter state lives in the URL query (`?q=…&kind=…`),
+  the `/` key focuses the search box. Rows carry `data-*` attributes.
+- Viewing (`openssl -text`, PEM, CSR, config, key; "Copy" buttons via the shared JS in `base.html`),
+  downloads (crt, der, key, csr, cnf, fullchain, CA chain, p12, zip), full backup (`/backup.zip`),
+  delete = move to `data/trash/`.
+- Name Constraints on intermediate CAs (DNS / IP CIDR / email), checked before issuing
+  (`check_name_constraints`, for every CA in the chain; also checks a hostname-like CN, like OpenSSL does).
+- Offline CA key: encrypted export (`encrypted_key`) + permanent removal (`remove_key`, overwrite then
+  delete). Restore by re-importing (the key is attached to the existing cert).
+- Expiry monitoring: main page banner, daily webhook/ntfy notification (`notify.py`, background thread,
+  once a day after `NOTIFY_HOUR`, state in `data/notify-state.json`), `/notifications` page, `/metrics`.
+  Renewed certs (same kind + CN + parent, later expiry) are skipped (`expiring_items`).
+- Audit log: `audit.py`, `data/audit.log` (JSON Lines) + stdout, `/audit` page, per-item history.
+  The private key is not embedded in the item page; a separate `/item/<id>/key` request loads it (logged).
 
-## Szerkezet
+## Layout
 
 ```
-app/ca.py          minden üzleti logika: tárolás, openssl hívások, config építés, import, CSR aláírás, export
-app/app.py         Flask útvonalak (vékony réteg, a ca.CAError-t flash üzenetté alakítja, audit hívások)
-app/audit.py       audit napló írás/olvasás, felhasználó a proxy fejlécből (AUDIT_USER_HEADER)
-app/notify.py      lejárati értesítések (webhook, ntfy), háttér ütemező
-app/templates/     Jinja sablonok; _macros.html: státusz/típus badge-ek, CA fa
-app/static/style.css  saját CSS, nincs CDN/JS keretrendszer (offline is működik), világos/sötét mód
+app/ca.py          all business logic: storage, openssl calls, config building, import, CSR signing, export
+app/app.py         Flask routes (thin layer; turns ca.CAError into flash messages; audit calls)
+app/audit.py       audit log write/read; user from the proxy header (AUDIT_USER_HEADER); ACTIONS labels
+app/notify.py      expiry notifications (webhook, ntfy), background scheduler
+app/templates/     Jinja templates; _macros.html: status/type badges, CA tree
+app/static/style.css  own CSS, no CDN / JS framework (works offline), light/dark mode
 Dockerfile, docker-compose.yml, requirements.txt
-.env.example       minta a helyi .env-hez, minden beállítással; a .env nincs a gitben
-.gitignore, .gitattributes (LF sorvégek), .dockerignore
-README.md          angol leírás (GitHubra);  README.hu.md  ugyanaz magyarul
-CLAUDE.md          ez a fájl (magyarul)
-data/              a CA-k élő adatai (bind mount) – NEM forráskód, nincs a gitben
+.env.example       template for the local .env with every setting; .env is not in git
+.gitignore, .gitattributes (LF line endings), .dockerignore
+.github/workflows/docker.yml  image build via the user's reusable workflow (feature/** branches, v* tags)
+scripts/release.sh annotated release tag + push (the user's script)
+scripts/make_icons.py  copied from another project (pdf-manager, pymupdf); not used by this app yet
+README.md          English docs (also pushed to Docker Hub by the workflow)
+data/              live CA data (bind mount) – NOT source code, not in git
 ```
 
-## Adatmodell
+## Data model
 
-Minden elem egy könyvtár: `data/store/<kind>-<cn-slug>-<6 hex>/`
-- `cert.pem`, `key.pem` (0600, titkosítatlan PKCS8; CSR-ből kiadottnál nincs), `csr.pem`
-  (root CA-nál és importált CA-nál nincs), `openssl.cnf` (importáltnál nincs), `meta.json`.
+Each item is a directory: `data/store/<kind>-<cn-slug>-<6 hex>/`
+- `cert.pem`, `key.pem` (0600, unencrypted PKCS8; absent for CSR-signed items), `csr.pem`
+  (absent for root CAs and imported items), `openssl.cnf` (absent for imported items), `meta.json`.
 - `meta.json`: `id`, `kind` (`root|intermediate|server|client`), `source` (`generated|imported|csr`),
-  `parent_id`, `created`, `params` (az űrlap értékei, az újrakiadáshoz).
-- Nincs adatbázis. A tanúsítvány adatait (lejárat, SAN stb.) minden betöltéskor a `cert.pem`-ből
-  olvassuk ki (`cert_info`). A lánc a `parent_id` mentén épül (`chain_ids`).
-- Generálás egy `.tmp-*` könyvtárban történik, siker esetén `rename`, hiba esetén törlés (atomikus).
+  `parent_id`, `created`, `params` (form values, for re-issuing).
+- No database. Certificate data (expiry, SANs, …) is read from `cert.pem` on every load (`cert_info`).
+  The chain follows `parent_id` (`chain_ids`).
+- Generation happens in a `.tmp-*` directory, then `rename` on success, delete on failure (atomic).
+- Older items in the user's `data/` have Hungarian comments in their `openssl.cnf`; that is fine, leave them.
 
-## Konvenciók
+## Conventions
 
-- Generálás és aláírás: **openssl CLI** (`run_openssl`), hogy a mentett `openssl.cnf` pontosan
-  reprodukálja a certet. Beolvasás és ellenőrzés: `cryptography` könyvtár.
-- A config szekciói: CSR-hez `req_ext` / `v3_intermediate_ca_req`, aláíráshoz `v3_ca` /
-  `v3_intermediate_ca` / `server_cert` / `client_cert` (`ext_section()`). Az aláírás
-  `openssl x509 -req -extfile openssl.cnf -extensions <szekció>` paranccsal történik, a CSR-ben kért
-  kiterjesztéseket nem másoljuk át (szándékos biztonsági döntés).
-- A configba kerülő felhasználói értékeket a `_cnf_escape()` escapeli; az új mezőknél is ezt kell használni.
-- Sorozatszám: véletlen 127 bites (`_serial()`). Alapértelmezett érvényesség: root 3650, intermediate
-  1825, szerver 397, kliens 365 nap. 825 napnál hosszabb szerver certnél figyelmeztetünk (Apple).
-- Fullchain = leaf + intermediate(ek), root nélkül; a „CA lánc” a roottal együtt.
-- Frontend: sima JS, keretrendszer nélkül. Az app sima HTTP-n is fut (proxy előtt / LAN-on), ezért
-  ne támaszkodj csak secure context API-kra: a `navigator.clipboard` ott nem létezik, a másolás
-  `execCommand('copy')` tartalékkal megy (`copyText` a `base.html`-ben). Szöveg beírásához `textContent`
-  kell, nem `innerText` (az `<br>`-eket csinál a sortörésekből, és a másolásnál elvesznek).
+- Generation and signing: **openssl CLI** (`run_openssl`), so the saved `openssl.cnf` reproduces the cert
+  exactly. Parsing and verification: the `cryptography` library.
+- Config sections: for the CSR `req_ext` / `v3_intermediate_ca_req`, for signing `v3_ca` /
+  `v3_intermediate_ca` / `server_cert` / `client_cert` (`ext_section()`). Signing uses
+  `openssl x509 -req -extfile openssl.cnf -extensions <section>`; extensions requested in the CSR are
+  never copied (deliberate security decision).
+- User values written into the config are escaped with `_cnf_escape()`; use it for new fields too.
+- Serial: random 127-bit (`_serial()`). Default validity: root 3650, intermediate 1825, server 397,
+  client 365 days. Warn for server certs over 825 days (Apple).
+- Fullchain = leaf + intermediate(s), no root; "CA chain" includes the root.
+- Frontend: plain JS, no framework. The app also runs over plain HTTP (behind a proxy / on the LAN), so
+  do not rely only on secure-context APIs: `navigator.clipboard` does not exist there; copying falls back
+  to `execCommand('copy')` (`copyText` in `base.html`). Use `textContent`, not `innerText`, to insert text
+  (`innerText` turns line breaks into `<br>`, which are lost when copying).
 
-## Git és dokumentáció
+## Git and docs
 
-- A `data/`, a `.env` és minden kulcs/cert fájl (`*.pem`, `*.key`, `*.p12`, `*.zip` …) ki van zárva
-  (`.gitignore`). Commit előtt `git status`-szal nézd meg, hogy ilyen ne kerüljön be.
-- Funkció változásnál mindkét README-t frissítsd (`README.md` angol, `README.hu.md` magyar), és ezt a
-  fájlt is (Funkciók, tesztelt esetek, továbbfejlesztések).
-- Commit/push csak a felhasználó kérésére.
+- `data/`, `.env` and all key/cert files (`*.pem`, `*.key`, `*.p12`, `*.zip`, …) are ignored
+  (`.gitignore`). Check `git status` before committing that none of these slipped in.
+- When a feature changes, update `README.md` and this file (Features, tested scenarios, future work).
+- Commit/push only when the user asks. Releases: `scripts/release.sh` (the user runs it).
 
-## Futtatás
+## Running
 
 ```bash
-cp .env.example .env                  # minden beállítás itt (a compose automatikusan beolvassa)
-mkdir -p data                         # a konténer uid 1000-ként fut, írnia kell
-docker compose up -d --build          # alapból a 8485-ös port (ezen a gépen a 8080 foglalt)
+cp .env.example .env                  # all settings live here (compose reads it automatically)
+mkdir -p data                         # the container runs as uid 1000 and must be able to write
+docker compose up -d --build          # port 8485 by default (8080 is taken on this machine)
 ```
 
-Környezeti változók: `SECRET_KEY`, `DEFAULT_C/ST/L/O`, `DATA_DIR` (alapból `/data`), `TZ`,
+Environment variables: `SECRET_KEY`, `DEFAULT_C/ST/L/O`, `DATA_DIR` (default `/data`), `TZ`,
 `NOTIFY_DAYS`, `NOTIFY_HOUR`, `NOTIFY_WEBHOOK_URL`, `NOTIFY_NTFY_URL`, `NOTIFY_NTFY_TOKEN`, `PUBLIC_URL`,
-`AUDIT_USER_HEADER`, `NOTIFY_DISABLE_SCHEDULER` (teszthez). Részletek: README.
-A `docker-compose.yml` ezeket `${VAR:-alap}` interpolációval a `.env`-ből veszi, így a konténer üres
-stringet is kaphat: az appban az üres érték az alapértelmezést jelentse (`os.environ.get(...) or alap`).
-Új beállításnál: `.env.example` + `docker-compose.yml` + mindkét README. A felhasználó saját `.env`-je
-(valódi értékek, `SECRET_KEY`) nincs a gitben, ne írd felül.
+`AUDIT_USER_HEADER`, `NOTIFY_DISABLE_SCHEDULER` (for tests). Details: README.
+`docker-compose.yml` takes them from `.env` with `${VAR:-default}` interpolation, so the container may get
+empty strings: in the app an empty value must mean the default (`os.environ.get(...) or default`).
+For a new setting: `.env.example` + `docker-compose.yml` + README. The user's own `.env` (real values,
+`SECRET_KEY`) is not in git; do not overwrite it.
 
-## Tesztelés – FONTOS
+## Testing – IMPORTANT
 
-A `data/` könyvtárban **a felhasználó valódi CA-i vannak** (pl. `root-local-teszt-*`). Teszteléskor
-ne a futó példányt és ne ezt a könyvtárat használd; egy korábbi tesztnél ebből már volt keveredés.
-Külön, eldobható adatkönyvtárral futtass egy második konténert:
+`data/` holds **the user's real CAs** (e.g. `root-local-teszt-*`). Never test against the running instance
+or that directory; an earlier test mixed test items into it. Run a second container with a throwaway
+data directory:
 
 ```bash
 docker build -t local-ca-manager:test .
 T=$(mktemp -d) && chown 1000 "$T"
 docker run -d --rm --name local-ca-test -p 127.0.0.1:18081:8080 -v "$T:/data" local-ca-manager:test
-# ... curl tesztek a http://127.0.0.1:18081 címen, ellenőrzés: openssl verify -CAfile root -untrusted int cert
+# ... curl tests against http://127.0.0.1:18081, verify with: openssl verify -CAfile root -untrusted int cert
 docker stop local-ca-test
 ```
 
-Nincs automatizált tesztkészlet. Eddig curl-lel végigjátszott folyamatokkal teszteltünk:
-- generálás: root → intermediate → szerver és kliens cert, majd `openssl verify`;
-- import: kívül készült lánc, titkosított kulcs, rossz jelszó, nem egyező kulcs, előbb intermediate és utána root;
-- leaf import: fullchain + kulcs root nélkül, majd root (összekapcsolás), PKCS#12 (jó/rossz jelszó), EKU nélküli
-  cert, kulcs utólagos hozzáadása, önaláírt CA:TRUE szerver cert; importált leaf fullchain / p12 exportja;
-- CSR aláírás: PEM és DER, SAN-ok átvétele, CA:true kérés, gyenge kulcs;
-- PKCS#12 mindkét módban;
-- Name Constraints: megfelelő és szabálysértő SAN / CN / CSR; kontrollként kézzel aláírt
-  szabálysértő certekkel ellenőriztük, hogy az `openssl verify` ugyanott utasít el;
-- offline kulcs: titkosított export, eltávolítás, aláírás offline roottal (elutasítva), visszaimport;
-- értesítés: webhook + ntfy fogadó a tesztkonténeren belül (`python receiver.py` a 127.0.0.1:9999-en),
-  `NOTIFY_HOUR=0` az ütemező teszteléséhez, megújított cert kiszűrése;
-- audit: felhasználó és IP az `X-Forwarded-User` / `X-Forwarded-For` fejlécből;
-- főoldali szűrő: a JS-t egy ideiglenes `node:22-alpine` konténerben futtattuk minimális DOM-utánzattal
-  (itt nincs node és böngésző), minden szűrő és az URL állapot ellenőrizve.
+There is no automated test suite. So far, flows were replayed with curl:
+- generation: root → intermediate → server and client cert, then `openssl verify`;
+- import: external chain, encrypted key, wrong password, non-matching key, intermediate first then root;
+- leaf import: fullchain + key without root, then root (linking), PKCS#12 (right/wrong password), cert
+  without EKU, adding the key later, self-signed CA:TRUE server cert; fullchain / p12 export of imported leaves;
+- CSR signing: PEM and DER, accepting SANs, CA:true request, weak key;
+- PKCS#12 in both modes;
+- Name Constraints: compliant and violating SAN / CN / CSR; as a control, hand-signed violating certs
+  confirmed that `openssl verify` rejects at the same points;
+- offline key: encrypted export, removal, signing with an offline root (rejected), re-import;
+- notifications: webhook + ntfy receiver inside the test container (`python receiver.py` on 127.0.0.1:9999),
+  `NOTIFY_HOUR=0` to test the scheduler, renewed cert filtering;
+- audit: user and IP from the `X-Forwarded-User` / `X-Forwarded-For` headers;
+- main page filter: the JS was run in a temporary `node:22-alpine` container with a minimal DOM stub
+  (no node or browser on this machine); every filter and the URL state checked;
+- English translation: every page rendered and the main flows replayed in the test container.
 
-Python függvény a konténerben is futtatható: `docker exec <név> python -c "import ca; ..."`.
+Python functions can be run inside the container: `docker exec <name> python -c "import ca; ..."`.
 
-## Lehetséges továbbfejlesztések (még nincsenek kész)
+## Possible future work (not done)
 
-- CRL / visszavonás (mTLS-hez hasznos: nginx `ssl_crl`), OCSP – a felhasználó „2. PKI best practice”
-  kérésének része volt, de még nem készült el; jeleztük neki, döntésére vár
-- CSRF védelem (token vagy Origin ellenőrzés) – javasolt, még nincs kész
-- Konténer szigorítás (read_only, cap_drop, no-new-privileges) – javasolt, még nincs kész
-- Titkosított teljes mentés (`/backup.zip` most titkosítatlan)
-- Automatizált tesztek (pytest, ideiglenes `DATA_DIR`-rel)
-- ACME szerver (pl. Traefik/Caddy automatikus certigényléséhez)
+- CRL / revocation (useful for mTLS: nginx `ssl_crl`), OCSP – part of the user's earlier
+  "2. PKI best practice" request, not implemented yet; the user was told and has not decided
+- CSRF protection (token or Origin check) – recommended, not done
+- Container hardening (read_only, cap_drop, no-new-privileges) – recommended, not done
+- Encrypted full backup (`/backup.zip` is currently unencrypted)
+- Automated tests (pytest with a temporary `DATA_DIR`)
+- ACME server (e.g. for automatic certificates in Traefik/Caddy)
+- New README screenshot (the current one shows the old Hungarian UI)

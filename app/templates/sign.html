@@ -1,70 +1,70 @@
 {% extends "base.html" %}
-{% block title %}CSR aláírása{% endblock %}
+{% block title %}Sign CSR{% endblock %}
 {% block content %}
 <section class="card">
-<h2>Kívül készült CSR aláírása</h2>
+<h2>Sign an external CSR</h2>
 <p class="muted">
-  A privát kulcs a kérelmezőnél marad, itt csak a CSR és a kiadott tanúsítvány tárolódik.
-  A subject a CSR-ből jön. A CSR-ben kért kiterjesztéseket (keyUsage, CA:true stb.) a rendszer nem veszi át,
-  a kiterjesztéseket a választott típus határozza meg. A SAN-okat a CSR-ből át lehet venni, és ki lehet egészíteni.
+  The private key stays with the requester; only the CSR and the issued certificate are stored here.
+  The subject comes from the CSR. Extensions requested in the CSR (keyUsage, CA:true, etc.) are not copied;
+  the extensions are defined by the selected type. SANs from the CSR can be accepted and extended.
 </p>
 
 {% if not cas %}
-  <div class="flash error">Nincs olyan CA, amelyhez privát kulcs tartozik.</div>
+  <div class="flash error">There is no CA with a private key.</div>
 {% endif %}
 
 <form method="post" enctype="multipart/form-data" class="grid">
-  <label class="full">CSR (PEM) – beillesztve
+  <label class="full">CSR (PEM) – paste
     <textarea name="csr_pem" rows="8" placeholder="-----BEGIN CERTIFICATE REQUEST-----">{{ form.get('csr_pem', '') }}</textarea>
   </label>
-  <label class="full">…vagy fájlként (PEM / DER)
+  <label class="full">…or upload a file (PEM / DER)
     <input type="file" name="csr_file">
   </label>
 
   {% if preview %}
   <div class="full">
     <dl class="props">
-      <dt>Subject</dt><dd>{{ preview.subject or '(üres)' }}</dd>
-      <dt>Kulcs</dt><dd>{{ preview.key }}</dd>
-      <dt>Kért SAN</dt><dd>{% for s in preview.sans %}<code>{{ s }}</code> {% else %}<span class="muted">nincs</span>{% endfor %}</dd>
-      {% if preview.requests_ca %}<dt>Figyelem</dt><dd><span class="badge amber">a CSR CA:true-t kér – figyelmen kívül marad</span></dd>{% endif %}
+      <dt>Subject</dt><dd>{{ preview.subject or '(empty)' }}</dd>
+      <dt>Key</dt><dd>{{ preview.key }}</dd>
+      <dt>Requested SANs</dt><dd>{% for s in preview.sans %}<code>{{ s }}</code> {% else %}<span class="muted">none</span>{% endfor %}</dd>
+      {% if preview.requests_ca %}<dt>Warning</dt><dd><span class="badge amber">the CSR requests CA:true – it will be ignored</span></dd>{% endif %}
     </dl>
     <details><summary>openssl req -text</summary><pre>{{ csr_text }}</pre></details>
   </div>
   {% endif %}
 
-  <label>Típus
+  <label>Type
     <select name="kind">
-      <option value="server" {% if form.get('kind') == 'server' %}selected{% endif %}>Szerver (serverAuth)</option>
-      <option value="client" {% if form.get('kind') == 'client' %}selected{% endif %}>mTLS kliens (clientAuth)</option>
+      <option value="server" {% if form.get('kind') == 'server' %}selected{% endif %}>Server (serverAuth)</option>
+      <option value="client" {% if form.get('kind') == 'client' %}selected{% endif %}>mTLS client (clientAuth)</option>
     </select>
   </label>
-  <label>Kiállító CA
+  <label>Issuing CA
     <select name="parent_id" required>
       {% for c in cas %}
         <option value="{{ c.id }}" {% if form.get('parent_id') == c.id %}selected{% endif %}>
-          {{ c.info.cn }} ({{ c.kind_label }}, lejár: {{ c.info.not_after[:10] }})
+          {{ c.info.cn }} ({{ c.kind_label }}, expires: {{ c.info.not_after[:10] }})
         </option>
       {% endfor %}
     </select>
   </label>
 
   <label class="check full"><input type="checkbox" name="use_csr_sans" value="1" {% if form.get('use_csr_sans') %}checked{% endif %}>
-    A CSR-ben kért SAN-ok átvétele</label>
-  <label class="full">További SAN (opcionális, soronként vagy vesszővel)
+    Accept the SANs requested in the CSR</label>
+  <label class="full">Additional SANs (optional, one per line or comma-separated)
     <textarea name="sans" rows="3" placeholder="*.home.arpa&#10;192.168.1.10">{{ form.get('sans', '') }}</textarea>
-    <small>Szerver típusnál a CN automatikusan bekerül, ha az hostnév vagy IP cím.</small>
+    <small>For the server type the CN is added automatically if it is a hostname or IP address.</small>
   </label>
   <label class="check full"><input type="checkbox" name="client_auth" value="1" {% if form.get('client_auth') %}checked{% endif %}>
-    Szerver certnél kliens hitelesítésre is (serverAuth, clientAuth)</label>
-  <label>Érvényesség (nap)
+    Server certificate also for client authentication (serverAuth, clientAuth)</label>
+  <label>Validity (days)
     <input name="days" type="number" min="1" max="36500" value="{{ form.get('days') or 397 }}">
-    <small>Szerver: 397 ajánlott (Apple max. 825), kliens: tetszőleges.</small>
+    <small>Server: 397 recommended (Apple max. 825); client: any.</small>
   </label>
 
   <div class="full buttons">
-    <button class="btn" type="submit" name="action" value="preview">Előnézet</button>
-    <button class="btn primary" type="submit" name="action" value="sign">Aláírás</button>
+    <button class="btn" type="submit" name="action" value="preview">Preview</button>
+    <button class="btn primary" type="submit" name="action" value="sign">Sign</button>
   </div>
 </form>
 </section>

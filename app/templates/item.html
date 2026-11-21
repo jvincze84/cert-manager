@@ -10,77 +10,77 @@
 
   <dl class="props">
     <dt>Subject</dt><dd>{{ it.info.subject }}</dd>
-    <dt>Kiállító</dt><dd>{{ it.info.issuer }}{% if it.info.self_signed %} <span class="muted">(önaláírt)</span>{% endif %}</dd>
-    <dt>Érvényes</dt><dd>{{ it.info.not_before }} → {{ it.info.not_after }}</dd>
-    <dt>Kulcs</dt><dd>{{ it.info.key }}</dd>
-    <dt>Sorozatszám</dt><dd class="mono">{{ it.info.serial }}</dd>
+    <dt>Issuer</dt><dd>{{ it.info.issuer }}{% if it.info.self_signed %} <span class="muted">(self-signed)</span>{% endif %}</dd>
+    <dt>Valid</dt><dd>{{ it.info.not_before }} → {{ it.info.not_after }}</dd>
+    <dt>Key</dt><dd>{{ it.info.key }}</dd>
+    <dt>Serial</dt><dd class="mono">{{ it.info.serial }}</dd>
     <dt>SHA-256</dt><dd class="mono small">{{ it.info.sha256 }}</dd>
-    {% if it.info.is_ca %}<dt>CA</dt><dd>igen{% if it.info.pathlen is not none %}, pathlen: {{ it.info.pathlen }}{% endif %}</dd>{% endif %}
+    {% if it.info.is_ca %}<dt>CA</dt><dd>yes{% if it.info.pathlen is not none %}, pathlen: {{ it.info.pathlen }}{% endif %}</dd>{% endif %}
     {% if it.info.sans %}<dt>SAN</dt><dd>{% for s in it.info.sans %}<code>{{ s }}</code> {% endfor %}</dd>{% endif %}
-    {% if it.info.nc_permitted %}<dt>Name Constraints</dt><dd>csak: {% for s in it.info.nc_permitted %}<code>{{ s }}</code> {% endfor %}</dd>{% endif %}
-    {% if it.info.nc_excluded %}<dt>Kizárt nevek</dt><dd>{% for s in it.info.nc_excluded %}<code>{{ s }}</code> {% endfor %}</dd>{% endif %}
+    {% if it.info.nc_permitted %}<dt>Name Constraints</dt><dd>only: {% for s in it.info.nc_permitted %}<code>{{ s }}</code> {% endfor %}</dd>{% endif %}
+    {% if it.info.nc_excluded %}<dt>Excluded names</dt><dd>{% for s in it.info.nc_excluded %}<code>{{ s }}</code> {% endfor %}</dd>{% endif %}
     {% if it.info.eku %}<dt>Ext. Key Usage</dt><dd>{{ it.info.eku | join(', ') }}</dd>{% endif %}
-    <dt>Lánc</dt><dd>
+    <dt>Chain</dt><dd>
       {% for c in chain %}<a href="{{ url_for('item', item_id=c.id) }}">{{ c.info.cn }}</a>{% if not loop.last %} → {% endif %}{% else %}
-        {% if it.kind == 'root' %}–{% else %}<span class="muted">kiállító nem található az adatbázisban</span>{% endif %}{% endfor %}
+        {% if it.kind == 'root' %}–{% else %}<span class="muted">issuer not found in the store</span>{% endif %}{% endfor %}
     </dd>
-    <dt>Létrehozva</dt><dd>{{ it.created }} ({{ {'imported': 'importált', 'csr': 'külső CSR aláírva – a privát kulcs nincs itt'}.get(it.source, 'generált') }})</dd>
-    <dt>Azonosító / könyvtár</dt><dd class="mono small">/data/store/{{ it.id }}</dd>
+    <dt>Created</dt><dd>{{ it.created }} ({{ {'imported': 'imported', 'csr': 'signed from an external CSR – the private key is not here'}.get(it.source, 'generated') }})</dd>
+    <dt>ID / directory</dt><dd class="mono small">/data/store/{{ it.id }}</dd>
   </dl>
 
-  <h3>Letöltés</h3>
+  <h3>Download</h3>
   <div class="buttons">
-    <a class="btn" href="{{ url_for('download', item_id=it.id, what='cert') }}" title="Csak ez a tanúsítvány (PEM)">Tanúsítvány (.crt)</a>
-    <a class="btn" href="{{ url_for('download', item_id=it.id, what='der') }}" title="DER formátum, pl. Android / Windows importhoz">DER (.der)</a>
-    {% if it.has_key %}<a class="btn" href="{{ url_for('download', item_id=it.id, what='key') }}">Privát kulcs (.key)</a>{% endif %}
+    <a class="btn" href="{{ url_for('download', item_id=it.id, what='cert') }}" title="This certificate only (PEM)">Certificate (.crt)</a>
+    <a class="btn" href="{{ url_for('download', item_id=it.id, what='der') }}" title="DER format, e.g. for Android / Windows import">DER (.der)</a>
+    {% if it.has_key %}<a class="btn" href="{{ url_for('download', item_id=it.id, what='key') }}">Private key (.key)</a>{% endif %}
     {% if it.kind != 'root' %}
-      <a class="btn" href="{{ url_for('download', item_id=it.id, what='fullchain') }}" title="Cert + intermediate(ek), root nélkül – nginx, traefik, haproxy">Fullchain</a>
-      <a class="btn" href="{{ url_for('download', item_id=it.id, what='chain') }}" title="Kiállító CA-k a roottal együtt – CA bundle / mTLS trust">CA lánc</a>
+      <a class="btn" href="{{ url_for('download', item_id=it.id, what='fullchain') }}" title="Cert + intermediate(s), without the root – nginx, traefik, haproxy">Fullchain</a>
+      <a class="btn" href="{{ url_for('download', item_id=it.id, what='chain') }}" title="Issuing CAs including the root – CA bundle / mTLS trust">CA chain</a>
     {% endif %}
     {% if it.has_csr %}<a class="btn" href="{{ url_for('download', item_id=it.id, what='csr') }}">CSR (.csr)</a>{% endif %}
     {% if it.has_cnf %}<a class="btn" href="{{ url_for('download', item_id=it.id, what='cnf') }}">OpenSSL config</a>{% endif %}
-    <a class="btn" href="{{ url_for('download', item_id=it.id, what='zip') }}">Minden (.zip)</a>
+    <a class="btn" href="{{ url_for('download', item_id=it.id, what='zip') }}">Everything (.zip)</a>
   </div>
 
   {% if it.has_key %}
   <form method="post" action="{{ url_for('download_p12', item_id=it.id) }}" class="inline">
     <strong>PKCS#12 (.p12)</strong>
-    <input type="password" name="password" placeholder="export jelszó" required autocomplete="new-password">
-    <label class="check"><input type="checkbox" name="legacy" value="1"> kompatibilis mód (3DES/SHA1 – régi Windows/macOS/Android)</label>
-    <button class="btn" type="submit">Letöltés</button>
+    <input type="password" name="password" placeholder="export password" required autocomplete="new-password">
+    <label class="check"><input type="checkbox" name="legacy" value="1"> compatibility mode (3DES/SHA1 – old Windows/macOS/Android)</label>
+    <button class="btn" type="submit">Download</button>
   </form>
   {% endif %}
 
   <div class="buttons actions">
     {% if it.kind in ('root', 'intermediate') and it.has_key %}
-      {% if it.info.pathlen != 0 %}<a class="btn" href="{{ url_for('new', kind='intermediate', parent=it.id) }}">+ Intermediate CA ezzel</a>{% endif %}
-      <a class="btn" href="{{ url_for('new', kind='server', parent=it.id) }}">+ Szerver cert ezzel</a>
-      <a class="btn" href="{{ url_for('new', kind='client', parent=it.id) }}">+ mTLS kliens ezzel</a>
-      <a class="btn" href="{{ url_for('sign', parent=it.id) }}">+ CSR aláírása ezzel</a>
+      {% if it.info.pathlen != 0 %}<a class="btn" href="{{ url_for('new', kind='intermediate', parent=it.id) }}">+ Intermediate CA from this</a>{% endif %}
+      <a class="btn" href="{{ url_for('new', kind='server', parent=it.id) }}">+ Server cert from this</a>
+      <a class="btn" href="{{ url_for('new', kind='client', parent=it.id) }}">+ mTLS client from this</a>
+      <a class="btn" href="{{ url_for('sign', parent=it.id) }}">+ Sign CSR with this</a>
     {% endif %}
     {% if it.source == 'generated' %}
-      <a class="btn" href="{{ url_for('new', kind=it.kind) ~ '?from=' ~ it.id }}">Újrakiadás ugyanezekkel az adatokkal</a>
+      <a class="btn" href="{{ url_for('new', kind=it.kind) ~ '?from=' ~ it.id }}">Re-issue with the same data</a>
     {% elif it.source == 'csr' %}
-      <a class="btn" href="{{ url_for('sign') ~ '?from=' ~ it.id }}">Újra aláírás (ugyanez a CSR)</a>
+      <a class="btn" href="{{ url_for('sign') ~ '?from=' ~ it.id }}">Re-sign (same CSR)</a>
     {% endif %}
     <form method="post" action="{{ url_for('delete', item_id=it.id) }}" class="inline"
-          data-confirm="Biztosan törlöd: {{ it.info.cn }}? (a /data/trash-be kerül)">
-      <button class="btn danger" type="submit" {% if children %}disabled title="Előbb a kiadott certeket töröld"{% endif %}>Törlés</button>
+          data-confirm="Really delete {{ it.info.cn }}? (it will be moved to /data/trash)">
+      <button class="btn danger" type="submit" {% if children %}disabled title="Delete the issued certificates first"{% endif %}>Delete</button>
     </form>
   </div>
 </section>
 
 {% if children %}
 <section class="card">
-  <h3>Ezzel a CA-val kiadott tanúsítványok</h3>
+  <h3>Certificates issued by this CA</h3>
   <ul>{% for c in children %}<li><a href="{{ url_for('item', item_id=c.id) }}">{{ c.info.cn }}</a> {{ kind_badge(c) }} {{ status(c.info) }}</li>{% endfor %}</ul>
 </section>
 {% endif %}
 
 <section class="card">
-  <h3>Tanúsítvány – olvasható forma <button class="btn small" data-copy="cert_text">Másolás</button></h3>
+  <h3>Certificate – readable form <button class="btn small" data-copy="cert_text">Copy</button></h3>
   <pre id="cert_text">{{ cert_text }}</pre>
-  <h3>Tanúsítvány – PEM <button class="btn small" data-copy="cert_pem">Másolás</button></h3>
+  <h3>Certificate – PEM <button class="btn small" data-copy="cert_pem">Copy</button></h3>
   <pre id="cert_pem">{{ files.cert }}</pre>
 </section>
 
@@ -89,7 +89,7 @@
   <details>
     <summary><h3>CSR</h3></summary>
     <pre>{{ csr_text }}</pre>
-    <h4>PEM <button class="btn small" data-copy="csr_pem">Másolás</button></h4>
+    <h4>PEM <button class="btn small" data-copy="csr_pem">Copy</button></h4>
     <pre id="csr_pem">{{ files.csr }}</pre>
   </details>
 </section>
@@ -100,7 +100,7 @@
   <details>
     <summary><h3>OpenSSL config</h3></summary>
     <pre id="cnf">{{ files.cnf }}</pre>
-    <button class="btn small" data-copy="cnf">Másolás</button>
+    <button class="btn small" data-copy="cnf">Copy</button>
   </details>
 </section>
 {% endif %}
@@ -108,9 +108,9 @@
 {% if it.has_key %}
 <section class="card">
   <details id="key_details">
-    <summary><h3>Privát kulcs (PEM) – kattints a megjelenítéshez</h3> <span class="muted small">(a megtekintés naplózódik)</span></summary>
-    <pre id="key_pem">betöltés…</pre>
-    <button class="btn small" data-copy="key_pem">Másolás</button>
+    <summary><h3>Private key (PEM) – click to show</h3> <span class="muted small">(viewing is logged)</span></summary>
+    <pre id="key_pem">loading…</pre>
+    <button class="btn small" data-copy="key_pem">Copy</button>
   </details>
 </section>
 <script>
@@ -120,38 +120,38 @@ document.getElementById('key_details').addEventListener('toggle', function (e) {
   fetch('{{ url_for('view_key', item_id=it.id) }}', {cache: 'no-store'})
     .then(r => r.ok ? r.text() : Promise.reject(r.status))
     .then(t => document.getElementById('key_pem').textContent = t)
-    .catch(err => document.getElementById('key_pem').textContent = 'Hiba: ' + err);
+    .catch(err => document.getElementById('key_pem').textContent = 'Error: ' + err);
 });
 </script>
 {% endif %}
 
 {% if it.kind in ('root', 'intermediate') %}
 <section class="card">
-  <h3>Offline kulcs</h3>
+  <h3>Offline key</h3>
   {% if it.has_key %}
     <p class="muted">
-      {% if it.kind == 'root' %}Best practice: a Root CA kulcsa ne legyen online. Ha az intermediate CA már
-      megvan, mentsd el a root kulcsot titkosítva (pl. pendrive, jelszókezelő), és távolítsd el innen.
-      Az intermediate továbbra is ad ki tanúsítványokat; root kulcs csak új intermediate kiadásához kell.
-      {% else %}Ha ezt a CA-t ritkán használod, a kulcsa offline is tárolható.{% endif %}
-      Visszahozás: Import oldal, ugyanez a cert + kulcs, és a meglévő CA-hoz kapcsolódik.
+      {% if it.kind == 'root' %}Best practice: the root CA key should not be online. Once you have an intermediate CA,
+      save the root key encrypted (e.g. USB stick, password manager) and remove it from here.
+      The intermediate keeps issuing certificates; the root key is only needed to issue a new intermediate.
+      {% else %}If you rarely use this CA, its key can be stored offline too.{% endif %}
+      To restore it: on the Import page, import the same certificate + key and it is attached to the existing CA.
     </p>
     <form method="post" action="{{ url_for('download_key_encrypted', item_id=it.id) }}" class="inline">
-      <strong>1. Titkosított kulcs letöltése (AES-256)</strong>
-      <input type="password" name="password" placeholder="jelszó (min. 8)" minlength="8" required autocomplete="new-password">
-      <input type="password" name="password2" placeholder="jelszó újra" minlength="8" required autocomplete="new-password">
-      <button class="btn" type="submit">Letöltés</button>
+      <strong>1. Download encrypted key (AES-256)</strong>
+      <input type="password" name="password" placeholder="password (min. 8)" minlength="8" required autocomplete="new-password">
+      <input type="password" name="password2" placeholder="password again" minlength="8" required autocomplete="new-password">
+      <button class="btn" type="submit">Download</button>
     </form>
     <form method="post" action="{{ url_for('remove_key', item_id=it.id) }}" class="inline"
-          data-confirm="A privát kulcs VÉGLEGESEN törlődik a szerverről. Biztosan elmentetted?">
-      <strong>2. Kulcs eltávolítása</strong>
-      <label class="check"><input type="checkbox" name="saved" value="1" required> Elmentettem a kulcsot, és ellenőriztem, hogy megvan</label>
-      <input name="confirm_cn" placeholder="írd be: {{ it.info.cn }}" required autocomplete="off">
-      <button class="btn danger" type="submit">Kulcs végleges eltávolítása</button>
+          data-confirm="The private key will be PERMANENTLY deleted from the server. Have you saved it?">
+      <strong>2. Remove key</strong>
+      <label class="check"><input type="checkbox" name="saved" value="1" required> I have saved the key and checked that it is readable</label>
+      <input name="confirm_cn" placeholder="type: {{ it.info.cn }}" required autocomplete="off">
+      <button class="btn danger" type="submit">Permanently remove key</button>
     </form>
   {% else %}
-    <p><span class="badge green">offline</span> Ennek a CA-nak a privát kulcsa nincs a szerveren, ezért nem tud aláírni.
-      Aláíráshoz az <a href="{{ url_for('import_') }}">Import</a> oldalon add meg újra a certet és a kulcsot; utána itt eltávolíthatod.</p>
+    <p><span class="badge green">offline</span> The private key of this CA is not on the server, so it cannot sign.
+      To sign, import the certificate and key again on the <a href="{{ url_for('import_') }}">Import</a> page; you can remove it here afterwards.</p>
   {% endif %}
 </section>
 {% endif %}
@@ -159,9 +159,9 @@ document.getElementById('key_details').addEventListener('toggle', function (e) {
 {% if history %}
 <section class="card">
   <details>
-    <summary><h3>Előzmények (audit)</h3></summary>
+    <summary><h3>History (audit)</h3></summary>
     <table>
-      <thead><tr><th>Időpont (UTC)</th><th>Művelet</th><th>Felhasználó</th><th>IP</th></tr></thead>
+      <thead><tr><th>Time (UTC)</th><th>Action</th><th>User</th><th>IP</th></tr></thead>
       <tbody>{% for e in history %}
         <tr><td class="nowrap">{{ e.ts | replace('T', ' ') | replace('+00:00', '') }}</td><td>{{ ACTIONS.get(e.action, e.action) }}</td><td>{{ e.user }}</td><td>{{ e.ip }}</td></tr>
       {% endfor %}</tbody>

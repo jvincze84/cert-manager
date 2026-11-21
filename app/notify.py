@@ -1,4 +1,4 @@
-"""Lejárati értesítések: napi összesítő webhookra és/vagy ntfy-ra."""
+"""Expiry notifications: daily digest to a webhook and/or ntfy."""
 from __future__ import annotations
 
 import datetime as dt
@@ -49,13 +49,13 @@ def _save_state(state: dict) -> None:
 
 def _line(it: dict) -> str:
     i = it["info"]
-    when = (f"LEJÁRT {-i['days_left']} napja" if i["status"] == "expired"
-            else f"{i['days_left']} nap múlva")
+    when = (f"EXPIRED {-i['days_left']} days ago" if i["status"] == "expired"
+            else f"in {i['days_left']} days")
     return f"• {i['cn']} ({it['kind_label']}) – {i['not_after'][:10]}, {when}"
 
 
 def build_message(items: list[dict], cfg: dict) -> tuple[str, str]:
-    title = f"Local CA: {len(items)} tanúsítvány lejár {cfg['days']} napon belül"
+    title = f"Local CA: {len(items)} certificate(s) expiring within {cfg['days']} days"
     lines = [_line(it) for it in items]
     if cfg["public_url"]:
         lines.append("")
@@ -72,7 +72,7 @@ def _post(url: str, body: bytes, headers: dict) -> None:
 
 
 def send(title: str, text: str, items: list[dict], cfg: dict, urgent: bool = False) -> list[str]:
-    """Elküldi az üzenetet minden beállított csatornára. Visszaad: hibák listája."""
+    """Send the message to every configured channel. Returns: list of errors."""
     errors = []
     if cfg["webhook_url"]:
         payload = {
@@ -89,7 +89,7 @@ def send(title: str, text: str, items: list[dict], cfg: dict, urgent: bool = Fal
         except Exception as e:
             errors.append(f"webhook: {e}")
     if cfg["ntfy_url"]:
-        # JSON publikálás: a cím így UTF-8 is lehet (fejlécben nem)
+        # JSON publishing: this way the title can be UTF-8 (not possible in a header)
         u = urllib.parse.urlsplit(cfg["ntfy_url"])
         base_path, _, topic = u.path.rstrip("/").rpartition("/")
         base = urllib.parse.urlunsplit((u.scheme, u.netloc, base_path or "/", "", ""))
@@ -108,7 +108,7 @@ def send(title: str, text: str, items: list[dict], cfg: dict, urgent: bool = Fal
 
 
 def run_check(force: bool = False, req=None) -> dict:
-    """Lejáró certek összegyűjtése és értesítés küldése. force=False: naponta egyszer."""
+    """Collect expiring certs and send a notification. force=False: once a day."""
     cfg = config()
     today = dt.date.today().isoformat()
     state = load_state()
@@ -123,7 +123,7 @@ def run_check(force: bool = False, req=None) -> dict:
         urgent = any(i["info"]["days_left"] <= 7 for i in items)
         errors = send(title, text, items, cfg, urgent=urgent)
         channels = bool(cfg["webhook_url"]) + bool(cfg["ntfy_url"])
-        result["sent"] = len(errors) < channels  # legalább egy csatornán kiment
+        result["sent"] = len(errors) < channels  # sent on at least one channel
         result["errors"] = errors
         if errors:
             audit.log("notify_error", req, errors=errors)
@@ -136,9 +136,9 @@ def run_check(force: bool = False, req=None) -> dict:
 def send_test(req=None) -> list[str]:
     cfg = config()
     if not enabled(cfg):
-        return ["Nincs beállítva értesítési csatorna (NOTIFY_WEBHOOK_URL / NOTIFY_NTFY_URL)."]
-    errors = send("Local CA: teszt értesítés",
-                  "Ha ezt látod, a lejárati értesítések működnek. ✓", [], cfg)
+        return ["No notification channel configured (NOTIFY_WEBHOOK_URL / NOTIFY_NTFY_URL)."]
+    errors = send("Local CA: test notification",
+                  "If you can see this, expiry notifications are working. ✓", [], cfg)
     audit.log("notify_error" if errors else "notify", req, test=True, errors=errors)
     return errors
 
@@ -147,7 +147,7 @@ _started = False
 
 
 def start_scheduler() -> None:
-    """Háttérszál: 10 percenként megnézi, elérte-e a NOTIFY_HOUR-t, és ha ma még nem futott, fut."""
+    """Background thread: every 10 minutes, checks whether NOTIFY_HOUR has passed and runs if it has not run today."""
     global _started
     if _started or os.environ.get("NOTIFY_DISABLE_SCHEDULER"):
         return
@@ -159,8 +159,8 @@ def start_scheduler() -> None:
             try:
                 if dt.datetime.now().hour >= config()["hour"]:
                     run_check()
-            except Exception as e:  # a háttérszál soha ne álljon le
-                print(f"notify hiba: {e}", flush=True)
+            except Exception as e:  # the background thread must never stop
+                print(f"notify error: {e}", flush=True)
             time.sleep(600)
 
     threading.Thread(target=loop, name="notify", daemon=True).start()

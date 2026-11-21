@@ -1,4 +1,4 @@
-"""Local CA kezelés: tárolás, kulcs/CSR/cert generálás openssl-lel, import, export."""
+"""Local CA management: storage, key/CSR/cert generation with openssl, import, export."""
 from __future__ import annotations
 
 import datetime as dt
@@ -25,8 +25,8 @@ TRASH = DATA_DIR / "trash"
 KINDS = {
     "root": "Root CA",
     "intermediate": "Intermediate CA",
-    "server": "Szerver",
-    "client": "mTLS kliens",
+    "server": "Server",
+    "client": "mTLS client",
 }
 CA_KINDS = ("root", "intermediate")
 LEAF_KINDS = ("server", "client")
@@ -39,8 +39,8 @@ KEY_TYPES = {
     "ec384": ("ECDSA P-384", ["-algorithm", "EC", "-pkeyopt", "ec_paramgen_curve:P-384"], "sha384"),
 }
 
-DN_FIELDS = [("C", "Ország (C)"), ("ST", "Megye/állam (ST)"), ("L", "Település (L)"),
-             ("O", "Szervezet (O)"), ("OU", "Szervezeti egység (OU)"), ("CN", "Common Name (CN)")]
+DN_FIELDS = [("C", "Country (C)"), ("ST", "State/province (ST)"), ("L", "Locality (L)"),
+             ("O", "Organization (O)"), ("OU", "Organizational unit (OU)"), ("CN", "Common Name (CN)")]
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,80}$")
 DNS_RE = re.compile(r"^(\*\.)?([A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?\.)*"
@@ -63,7 +63,7 @@ def run_openssl(args: list[str], cwd: Path | None = None, env: dict | None = Non
     p = subprocess.run(["openssl", *args], cwd=cwd, capture_output=True, env=full_env)
     if p.returncode != 0:
         msg = p.stderr.decode(errors="replace").strip()
-        raise CAError(f"openssl {args[0]} hiba:\n{msg}")
+        raise CAError(f"openssl {args[0]} error:\n{msg}")
     return p.stdout
 
 
@@ -88,7 +88,7 @@ def _write_private(path: Path, data: bytes) -> None:
 
 def _cnf_escape(value: str) -> str:
     if any(c in value for c in "\r\n\0"):
-        raise CAError("A mezők nem tartalmazhatnak sortörést.")
+        raise CAError("Fields must not contain line breaks.")
     out = []
     for c in value:
         if c in '\\$#"\'':
@@ -205,14 +205,14 @@ def name_constraints_of(cert: x509.Certificate):
 
 
 def parse_name_constraints(text: str) -> list[tuple[str, str]]:
-    """Űrlap -> [(típus, érték)]. DNS: home.arpa, IP: 192.168.0.0/16, email: email:home.arpa"""
+    """Form -> [(type, value)]. DNS: home.arpa, IP: 192.168.0.0/16, email: email:home.arpa"""
     out: list[tuple[str, str]] = []
     for t in [t for t in re.split(r"[\s,;]+", text or "") if t]:
         low = t.lower()
         if low.startswith("email:"):
             val = t[6:].lower()
             if not re.fullmatch(r"([^@\s]+@)?\.?[a-z0-9.-]+", val):
-                raise CAError(f"Érvénytelen e-mail korlát: {val}")
+                raise CAError(f"Invalid e-mail constraint: {val}")
             out.append(("email", val))
             continue
         if low.startswith("ip:"):
@@ -223,14 +223,14 @@ def parse_name_constraints(text: str) -> list[tuple[str, str]]:
             try:
                 net = ipaddress.ip_network(t, strict=False)
             except ValueError:
-                raise CAError(f"Érvénytelen IP tartomány: {t} (CIDR formátum kell, pl. 192.168.0.0/16)")
+                raise CAError(f"Invalid IP range: {t} (CIDR format required, e.g. 192.168.0.0/16)")
             out.append(("IP", str(net)))
             continue
         val = t.lower().rstrip(".")
         if val.startswith("*."):
-            raise CAError(f"Name Constraint-ben nincs wildcard, a '{val[2:]}' az aldomaineket is lefedi.")
+            raise CAError(f"Wildcards are not allowed in Name Constraints; '{val[2:]}' already covers the subdomains.")
         if not DNS_RE.match(val.lstrip(".")):
-            raise CAError(f"Érvénytelen DNS korlát: {val}")
+            raise CAError(f"Invalid DNS constraint: {val}")
         out.append(("DNS", val))
     return out
 
@@ -265,11 +265,11 @@ def _name_matches(typ: str, val: str, c) -> bool:
 
 
 def check_name_constraints(parent_id: str, sans: list[tuple[str, str]], cn: str = "") -> None:
-    """A kiállító lánc Name Constraints korlátainak ellenőrzése kiadás előtt (RFC 5280 szerint:
-    egy névtípust csak akkor korlátoz a permitted lista, ha van benne ilyen típusú elem)."""
+    """Check the Name Constraints of the issuing chain before issuing (per RFC 5280, the permitted
+    list only restricts a name type if it contains at least one entry of that type)."""
     ids = [parent_id] + chain_ids(parent_id)
     sans = list(sans)
-    # OpenSSL a hostnévnek látszó CN-t is ellenőrzi, ha nincs DNS SAN
+    # OpenSSL also checks a hostname-like CN when there is no DNS SAN
     if cn and "." in cn and DNS_RE.match(cn) and not any(t == "DNS" for t, _ in sans):
         sans.append(("DNS", cn.lower()))
     problems = []
@@ -282,12 +282,12 @@ def check_name_constraints(parent_id: str, sans: list[tuple[str, str]], cn: str 
                 continue
             same = [c for t, c in permitted if t == typ]
             if same and not any(_name_matches(typ, val, c) for c in same):
-                problems.append(f"{typ}:{val} – nincs a(z) '{cn}' engedélyezett névterében "
+                problems.append(f"{typ}:{val} – not in the permitted namespace of '{cn}' "
                                 f"({', '.join(str(c) for c in same)})")
             if any(_name_matches(typ, val, c) for t, c in excluded if t == typ):
-                problems.append(f"{typ}:{val} – a(z) '{cn}' kizárta")
+                problems.append(f"{typ}:{val} – excluded by '{cn}'")
     if problems:
-        raise CAError("Name Constraints sértés, a tanúsítványt a kliensek elutasítanák:\n"
+        raise CAError("Name Constraints violation, clients would reject the certificate:\n"
                       + "\n".join(problems))
 
 
@@ -295,7 +295,7 @@ def check_name_constraints(parent_id: str, sans: list[tuple[str, str]], cn: str 
 
 def item_dir(item_id: str) -> Path:
     if not ID_RE.match(item_id or ""):
-        raise CAError("Érvénytelen azonosító.")
+        raise CAError("Invalid ID.")
     return STORE / item_id
 
 
@@ -342,7 +342,7 @@ def _save_meta(d: Path, meta: dict) -> None:
 
 
 def chain_ids(item_id: str) -> list[str]:
-    """A kiállítók listája felfelé (szülő, nagyszülő, ...)."""
+    """List of issuers going up (parent, grandparent, ...)."""
     out, seen = [], {item_id}
     meta = load_item(item_id)
     pid = meta.get("parent_id") if meta else None
@@ -373,9 +373,9 @@ def children_of(item_id: str) -> list[dict]:
 def delete_item(item_id: str) -> None:
     d = item_dir(item_id)
     if not d.is_dir():
-        raise CAError("Nincs ilyen elem.")
+        raise CAError("No such item.")
     if children_of(item_id):
-        raise CAError("Ez a CA még tanúsítványokat tartalmaz, előbb azokat töröld.")
+        raise CAError("This CA still has certificates; delete them first.")
     TRASH.mkdir(parents=True, exist_ok=True)
     shutil.move(str(d), TRASH / f"{item_id}-{_now().strftime('%Y%m%d%H%M%S')}")
 
@@ -385,17 +385,17 @@ def delete_item(item_id: str) -> None:
 def _clean_dn(form: dict) -> dict:
     dn = {k: (form.get(k) or "").strip() for k, _ in DN_FIELDS}
     if not dn["CN"]:
-        raise CAError("A Common Name (CN) kötelező.")
+        raise CAError("Common Name (CN) is required.")
     if dn["C"] and not re.fullmatch(r"[A-Za-z]{2}", dn["C"]):
-        raise CAError("Az ország (C) kétbetűs kód legyen, pl. HU.")
+        raise CAError("Country (C) must be a two-letter code, e.g. US.")
     dn["C"] = dn["C"].upper()
     for k, v in dn.items():
         if len(v) > 64:
-            raise CAError(f"A(z) {k} mező legfeljebb 64 karakter lehet.")
+            raise CAError(f"The {k} field can be at most 64 characters.")
     email = (form.get("email") or "").strip()
     if email:
         if not re.fullmatch(r"[^@\s]+@[^@\s]+", email):
-            raise CAError("Érvénytelen e-mail cím.")
+            raise CAError("Invalid e-mail address.")
         dn["emailAddress"] = email
     return dn
 
@@ -404,9 +404,9 @@ def _clean_days(form: dict, default: int) -> int:
     try:
         days = int(form.get("days") or default)
     except ValueError:
-        raise CAError("Az érvényesség napokban megadott egész szám legyen.")
+        raise CAError("Validity must be a whole number of days.")
     if not 1 <= days <= 36500:
-        raise CAError("Az érvényesség 1 és 36500 nap között lehet.")
+        raise CAError("Validity must be between 1 and 36500 days.")
     return days
 
 
@@ -415,7 +415,7 @@ def _clean_pathlen(form: dict) -> int | None:
     if v == "":
         return None
     if not v.isdigit() or int(v) > 10:
-        raise CAError("A pathlen 0-10 közötti szám, vagy üres (korlátlan).")
+        raise CAError("pathlen must be a number from 0 to 10, or empty (unlimited).")
     return int(v)
 
 
@@ -444,17 +444,17 @@ def parse_sans(text: str, cn: str | None = None, add_cn: bool = False) -> list[t
             val = val.lower().rstrip(".")
             if not DNS_RE.match(val):
                 if add_cn and t == cn and not out:
-                    continue  # a CN nem hostnév -> nem kerül a SAN-ba
-                raise CAError(f"Érvénytelen DNS név: {val}")
+                    continue  # the CN is not a hostname -> not added to the SANs
+                raise CAError(f"Invalid DNS name: {val}")
         elif typ == "IP":
             try:
                 val = str(ipaddress.ip_address(val))
             except ValueError:
-                raise CAError(f"Érvénytelen IP cím: {val}")
+                raise CAError(f"Invalid IP address: {val}")
         elif typ == "email" and not re.fullmatch(r"[^@\s]+@[^@\s]+", val):
-            raise CAError(f"Érvénytelen e-mail: {val}")
+            raise CAError(f"Invalid e-mail: {val}")
         elif typ == "URI" and ":" not in val:
-            raise CAError(f"Érvénytelen URI: {val}")
+            raise CAError(f"Invalid URI: {val}")
         if (typ, val) not in out:
             out.append((typ, val))
     return out
@@ -464,18 +464,18 @@ def parse_sans(text: str, cn: str | None = None, add_cn: bool = False) -> list[t
 
 def build_config(kind: str, dn: dict, key_type: str, *, sans=None, pathlen=None,
                  client_auth: bool = False, name_constraints=None) -> str:
-    from_csr = key_type not in KEY_TYPES  # külső CSR: key_type = kulcs leírása, pl. "RSA 2048"
+    from_csr = key_type not in KEY_TYPES  # external CSR: key_type = key description, e.g. "RSA 2048"
     if from_csr:
         label, md, is_rsa = key_type, "sha256", key_type.startswith("RSA")
     else:
         label, _, md = KEY_TYPES[key_type]
         is_rsa = key_type.startswith("rsa")
     L = [f"# Local CA Manager - {KINDS[kind]}",
-         f"# Generálva: {_now().strftime('%Y-%m-%d %H:%M:%S UTC')}",
-         f"# Kulcs: {label}"]
+         f"# Generated: {_now().strftime('%Y-%m-%d %H:%M:%S UTC')}",
+         f"# Key: {label}"]
     if from_csr:
-        L += ["# Külső CSR aláírása: a subject a CSR-ből jön, a [ req ] / [ dn ] rész csak dokumentáció.",
-              "# A CSR-ben kért kiterjesztések NEM kerülnek át, csak az alábbi aláíró szekcióban lévők."]
+        L += ["# Signing an external CSR: the subject comes from the CSR, [ req ] / [ dn ] are documentation only.",
+              "# Extensions requested in the CSR are NOT copied, only those in the signing section below."]
     L += ["", "[ req ]"]
     if is_rsa and not from_csr:
         L.append(f"default_bits        = {label.split()[1]}")
@@ -506,19 +506,19 @@ def build_config(kind: str, dn: dict, key_type: str, *, sans=None, pathlen=None,
               "authorityKeyIdentifier = keyid:always", ""]
     elif kind == "intermediate":
         nc = ["nameConstraints = critical, @name_constraints"] if name_constraints else []
-        L += ["# CSR-be kerülő kiterjesztések",
+        L += ["# Extensions put into the CSR",
               "[ v3_intermediate_ca_req ]",
               f"basicConstraints = critical, CA:true{pl}",
               "keyUsage = critical, keyCertSign, cRLSign",
               "subjectKeyIdentifier = hash", *nc, "",
-              "# Aláíráskor használt kiterjesztések (openssl x509 -req -extensions v3_intermediate_ca)",
+              "# Extensions used when signing (openssl x509 -req -extensions v3_intermediate_ca)",
               "[ v3_intermediate_ca ]",
               f"basicConstraints = critical, CA:true{pl}",
               "keyUsage = critical, keyCertSign, cRLSign",
               "subjectKeyIdentifier = hash",
               "authorityKeyIdentifier = keyid:always", *nc, ""]
         if name_constraints:
-            L += ["# Ez a CA csak az alábbi névterekre adhat ki érvényes tanúsítványt",
+            L += ["# This CA can only issue valid certificates for the namespaces below",
                   "[ name_constraints ]"]
             counters: dict[str, int] = {}
             for typ, val in name_constraints:
@@ -540,7 +540,7 @@ def build_config(kind: str, dn: dict, key_type: str, *, sans=None, pathlen=None,
         L += ["[ req_ext ]"]
         if sans:
             L.append("subjectAltName = @alt_names")
-        L += ["", f"# Aláíráskor használt kiterjesztések (openssl x509 -req -extensions {section})",
+        L += ["", f"# Extensions used when signing (openssl x509 -req -extensions {section})",
               f"[ {section} ]",
               "basicConstraints = critical, CA:false",
               f"keyUsage = critical, {ku}",
@@ -572,15 +572,15 @@ def _serial() -> str:
 
 
 def create(kind: str, form: dict) -> tuple[str, list[str]]:
-    """Új root/intermediate/server/client cert generálása. Visszaad: (id, figyelmeztetések)."""
+    """Generate a new root/intermediate/server/client certificate. Returns: (id, warnings)."""
     if kind not in KINDS:
-        raise CAError("Ismeretlen típus.")
+        raise CAError("Unknown type.")
     ensure_dirs()
     warnings: list[str] = []
     dn = _clean_dn(form)
     key_type = form.get("key_type") or "rsa2048"
     if key_type not in KEY_TYPES:
-        raise CAError("Ismeretlen kulcstípus.")
+        raise CAError("Unknown key type.")
     default_days = {"root": 3650, "intermediate": 1825, "server": 397, "client": 365}[kind]
     days = _clean_days(form, default_days)
 
@@ -594,25 +594,25 @@ def create(kind: str, form: dict) -> tuple[str, list[str]]:
     else:
         parent = load_item(form.get("parent_id") or "")
         if not parent or parent["kind"] not in CA_KINDS:
-            raise CAError("Válassz kiállító CA-t.")
+            raise CAError("Select an issuing CA.")
         if not parent["has_key"]:
-            raise CAError("A kiválasztott CA-hoz nincs privát kulcs, nem tud aláírni.")
+            raise CAError("The selected CA has no private key, so it cannot sign.")
         pi = parent["info"]
         if kind == "intermediate":
             pathlen = _clean_pathlen(form)
             name_constraints = parse_name_constraints(form.get("name_constraints", ""))
             if pi["pathlen"] == 0:
-                raise CAError("A kiválasztott CA pathlen:0, nem írhat alá újabb CA-t.")
+                raise CAError("The selected CA has pathlen:0, so it cannot sign another CA.")
             if pi["pathlen"] is not None and (pathlen is None or pathlen >= pi["pathlen"]):
                 pathlen = pi["pathlen"] - 1
-                warnings.append(f"A pathlen a szülő korlátja miatt {pathlen}-ra lett állítva.")
+                warnings.append(f"pathlen was set to {pathlen} because of the parent's limit.")
         if kind == "server":
             sans = parse_sans(form.get("sans", ""), dn["CN"], add_cn=True)
             if not sans:
-                raise CAError("Szerver tanúsítványhoz legalább egy DNS név vagy IP cím kell.")
+                raise CAError("A server certificate needs at least one DNS name or IP address.")
             client_auth = bool(form.get("client_auth"))
             if days > 825:
-                warnings.append("Apple eszközök a 825 napnál hosszabb szerver certeket elutasítják.")
+                warnings.append("Apple devices reject server certificates valid for more than 825 days.")
         elif kind == "client":
             sans = parse_sans(form.get("sans", ""))
             if dn.get("emailAddress") and ("email", dn["emailAddress"]) not in sans:
@@ -620,8 +620,8 @@ def create(kind: str, form: dict) -> tuple[str, list[str]]:
         if kind in LEAF_KINDS:
             check_name_constraints(parent["id"], sans, dn["CN"])
         if _now() + dt.timedelta(days=days) > pi["not_after_dt"]:
-            warnings.append(f"Az új tanúsítvány tovább lenne érvényes, mint a kiállító CA "
-                            f"({pi['not_after']}); a lánc a CA lejártakor érvénytelen lesz.")
+            warnings.append(f"The new certificate would be valid longer than the issuing CA "
+                            f"({pi['not_after']}); the chain becomes invalid when the CA expires.")
 
     item_id = _new_id(kind, dn["CN"])
     tmp = Path(tempfile.mkdtemp(prefix=".tmp-", dir=STORE))
@@ -676,9 +676,9 @@ def load_csr(data: bytes) -> x509.CertificateSigningRequest:
         csr = (x509.load_pem_x509_csr(data) if data.startswith(b"-----")
                else x509.load_der_x509_csr(data))
     except Exception:
-        raise CAError("Nem sikerült a CSR-t beolvasni (PEM vagy DER kell).")
+        raise CAError("Could not read the CSR (PEM or DER required).")
     if not csr.is_signature_valid:
-        raise CAError("A CSR aláírása érvénytelen (sérült vagy módosított CSR).")
+        raise CAError("The CSR signature is invalid (corrupted or modified CSR).")
     return csr
 
 
@@ -704,29 +704,29 @@ def csr_summary(data: bytes) -> dict:
 
 
 def sign_csr(csr_data: bytes, form: dict) -> tuple[str, list[str]]:
-    """Kívül készült CSR aláírása szerver vagy kliens certként (privát kulcs nélkül tárolódik)."""
+    """Sign an external CSR as a server or client certificate (stored without a private key)."""
     ensure_dirs()
     warnings: list[str] = []
     kind = form.get("kind") or "server"
     if kind not in LEAF_KINDS:
-        raise CAError("CSR-ből csak szerver vagy mTLS kliens tanúsítvány adható ki.")
+        raise CAError("Only server or mTLS client certificates can be issued from a CSR.")
     csr = load_csr(csr_data)
     summary = csr_summary(csr_data)
     pub = csr.public_key()
     if isinstance(pub, rsa.RSAPublicKey) and pub.key_size < 2048:
-        raise CAError("2048 bitnél rövidebb RSA kulcs nem írható alá.")
+        raise CAError("RSA keys shorter than 2048 bits cannot be signed.")
     if summary["requests_ca"]:
-        warnings.append("A CSR CA:true-t kért; ez figyelmen kívül maradt, leaf cert készült.")
+        warnings.append("The CSR requested CA:true; this was ignored and a leaf certificate was issued.")
 
     parent = load_item(form.get("parent_id") or "")
     if not parent or parent["kind"] not in CA_KINDS:
-        raise CAError("Válassz kiállító CA-t.")
+        raise CAError("Select an issuing CA.")
     if not parent["has_key"]:
-        raise CAError("A kiválasztott CA-hoz nincs privát kulcs, nem tud aláírni.")
+        raise CAError("The selected CA has no private key, so it cannot sign.")
     days = _clean_days(form, 397 if kind == "server" else 365)
 
     cn = summary["cn"]
-    # SAN: a CSR-ben kértek (ha engedélyezett) + az űrlapon megadottak
+    # SANs: those requested in the CSR (if allowed) + those entered on the form
     san_text = form.get("sans", "")
     if form.get("use_csr_sans"):
         san_text = "\n".join(summary["sans"]) + "\n" + san_text
@@ -734,14 +734,14 @@ def sign_csr(csr_data: bytes, form: dict) -> tuple[str, list[str]]:
     client_auth = False
     if kind == "server":
         if not sans:
-            raise CAError("Szerver tanúsítványhoz legalább egy DNS név vagy IP cím kell "
-                          "(a CSR-ben sincs használható SAN / CN).")
+            raise CAError("A server certificate needs at least one DNS name or IP address "
+                          "(the CSR has no usable SAN / CN either).")
         client_auth = bool(form.get("client_auth"))
         if days > 825:
-            warnings.append("Apple eszközök a 825 napnál hosszabb szerver certeket elutasítják.")
+            warnings.append("Apple devices reject server certificates valid for more than 825 days.")
     check_name_constraints(parent["id"], sans, cn)
     if _now() + dt.timedelta(days=days) > parent["info"]["not_after_dt"]:
-        warnings.append(f"Az új tanúsítvány tovább lenne érvényes, mint a kiállító CA "
+        warnings.append(f"The new certificate would be valid longer than the issuing CA "
                         f"({parent['info']['not_after']}).")
 
     name = cn or (sans[0][1] if sans else "csr")
@@ -814,7 +814,7 @@ def _relink_orphans() -> None:
 
 
 def _leaf_kind(c: x509.Certificate) -> str:
-    """Nem-CA cert típusa az EKU alapján (EKU nélkül: SAN DNS/IP -> szerver, különben kliens)."""
+    """Type of a non-CA certificate from its EKU (without EKU: DNS/IP SAN -> server, else client)."""
     info = cert_info(c)
     if "serverAuth" in info["eku"]:
         return "server"
@@ -824,12 +824,12 @@ def _leaf_kind(c: x509.Certificate) -> str:
 
 
 def _load_cert_bundle(data: bytes, password: str | None):
-    """PEM (több cert is) / DER / PKCS#12 -> (certek, p12-ből jövő kulcs vagy None)."""
+    """PEM (one or more certs) / DER / PKCS#12 -> (certs, key from the p12 or None)."""
     if b"-----BEGIN CERTIFICATE-----" in data:
         try:
             return x509.load_pem_x509_certificates(data), None
         except Exception:
-            raise CAError("Nem sikerült a PEM tanúsítványt beolvasni.")
+            raise CAError("Could not read the PEM certificate.")
     try:
         return [x509.load_der_x509_certificate(data)], None
     except Exception:
@@ -839,17 +839,17 @@ def _load_cert_bundle(data: bytes, password: str | None):
         key, cert, extra = pkcs12.load_key_and_certificates(
             data, password.encode() if password else None)
     except ValueError:
-        raise CAError("Nem sikerült beolvasni: PEM, DER vagy PKCS#12 kell. PKCS#12 esetén "
-                      "ellenőrizd a jelszót (Kulcs / PKCS#12 jelszava mező).")
+        raise CAError("Could not read the file: PEM, DER or PKCS#12 required. For PKCS#12, "
+                      "check the password (Key / PKCS#12 password field).")
     certs = ([cert] if cert else []) + list(extra or [])
     if not certs:
-        raise CAError("A PKCS#12 fájl nem tartalmaz tanúsítványt.")
+        raise CAError("The PKCS#12 file contains no certificate.")
     return certs, key
 
 
 def import_ca(cert_data: bytes, key_data: bytes | None, password: str | None) -> tuple[list[str], list[str]]:
-    """Tanúsítvány(ok) importálása: CA (root/intermediate) és sima szerver/kliens cert is,
-    akár teljes lánc vagy PKCS#12, opcionális privát kulccsal."""
+    """Import certificate(s): CAs (root/intermediate) and plain server/client certificates,
+    including whole chains or PKCS#12, with an optional private key."""
     ensure_dirs()
     certs, key = _load_cert_bundle(cert_data, password)
 
@@ -858,12 +858,12 @@ def import_ca(cert_data: bytes, key_data: bytes | None, password: str | None) ->
         try:
             key = serialization.load_pem_private_key(key_data, password=pw)
         except TypeError:
-            raise CAError("A kulcs jelszóval védett, add meg a jelszót.")
+            raise CAError("The key is password-protected; enter the password.")
         except ValueError:
             try:
                 key = serialization.load_der_private_key(key_data, password=pw)
             except Exception:
-                raise CAError("Nem sikerült a privát kulcsot beolvasni (rossz jelszó vagy formátum?).")
+                raise CAError("Could not read the private key (wrong password or format?).")
 
     key_target = None
     if key is not None:
@@ -871,12 +871,12 @@ def import_ca(cert_data: bytes, key_data: bytes | None, password: str | None) ->
                                            serialization.PublicFormat.SubjectPublicKeyInfo)
         matches = [c for c in certs if _pub_der(c) == kp]
         if not matches:
-            raise CAError("A privát kulcs egyik megadott tanúsítványhoz sem tartozik.")
+            raise CAError("The private key does not belong to any of the given certificates.")
         key_target = matches[0]
     key_pem = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
                                 serialization.NoEncryption()) if key is not None else None
 
-    # Sorrend: önaláírt CA-k, többi CA, végül a sima certek – így a gyerekek megtalálják a szülőt.
+    # Order: self-signed CAs, other CAs, then plain certs, so children find their parent.
     def _order(c):
         is_ca = cert_info(c)["is_ca"]
         return 0 if (is_ca and c.subject == c.issuer) else 1 if is_ca else 2
@@ -893,21 +893,21 @@ def import_ca(cert_data: bytes, key_data: bytes | None, password: str | None) ->
             if existing:
                 if c is key_target and not existing["has_key"]:
                     _write_private(item_dir(existing["id"]) / "key.pem", key_pem)
-                    messages.append(f"'{cn}' már létezett, a privát kulcs hozzáadva.")
+                    messages.append(f"'{cn}' already existed; the private key was added.")
                     imported.append(existing["id"])
                 else:
-                    messages.append(f"'{cn}' már létezik, kihagyva.")
+                    messages.append(f"'{cn}' already exists, skipped.")
                 continue
             self_signed = c.subject == c.issuer
             info = cert_info(c)
-            # Az `openssl req -x509`-cel készült önaláírt szerver certek gyakran CA:TRUE-k;
-            # valódi root CA-ban viszont nincs DNS/IP SAN -> ilyenkor sima certként kezeljük.
+            # Self-signed server certs made with `openssl req -x509` are often CA:TRUE;
+            # a real root CA has no DNS/IP SAN -> treat these as plain certificates.
             is_ca = info["is_ca"] and not (
                 self_signed and any(x.startswith(("DNS:", "IP:")) for x in info["sans"]))
             parent_id = None if self_signed else _find_issuer(c)
             if not self_signed and parent_id is None and any(
                     o.subject == c.issuer for o in pending if o is not c):
-                rest.append(c)  # a szülő ugyanebben a csomagban van, később
+                rest.append(c)  # the parent is in the same bundle, handle later
                 continue
             if is_ca:
                 kind = "root" if self_signed else "intermediate"
@@ -924,10 +924,10 @@ def import_ca(cert_data: bytes, key_data: bytes | None, password: str | None) ->
                            "created": _now().isoformat(timespec="seconds"), "params": {}})
             imported.append(item_id)
             if self_signed and not is_ca:
-                messages.append(f"'{cn}' önaláírt (nem CA által kiadott) tanúsítvány.")
+                messages.append(f"'{cn}' is a self-signed certificate (not issued by a CA).")
             elif not self_signed and parent_id is None:
-                messages.append(f"'{cn}' kiállítója nem található; ha később importálod a CA-t, "
-                                f"automatikusan összekapcsolódnak.")
+                messages.append(f"The issuer of '{cn}' was not found; if you import the CA later, "
+                                f"they will be linked automatically.")
         if len(rest) == len(pending):
             break
         pending = rest
@@ -944,17 +944,17 @@ def openssl_text(item_id: str, what: str) -> str:
     elif what == "csr":
         out = run_openssl(["req", "-in", str(d / "csr.pem"), "-noout", "-text"])
     else:
-        raise CAError("Ismeretlen nézet.")
+        raise CAError("Unknown view.")
     return out.decode(errors="replace")
 
 
 def read_file(item_id: str, name: str) -> bytes:
     allowed = {"cert.pem", "key.pem", "csr.pem", "openssl.cnf"}
     if name not in allowed:
-        raise CAError("Ismeretlen fájl.")
+        raise CAError("Unknown file.")
     p = item_dir(item_id) / name
     if not p.is_file():
-        raise CAError("A fájl nem létezik ehhez az elemhez.")
+        raise CAError("This file does not exist for this item.")
     return p.read_bytes()
 
 
@@ -963,16 +963,16 @@ def cert_der(item_id: str) -> bytes:
 
 
 def fullchain(item_id: str) -> bytes:
-    """Leaf + intermediate(ek), root nélkül (nginx / traefik / haproxy)."""
+    """Leaf + intermediate(s), without the root (nginx / traefik / haproxy)."""
     return read_file(item_id, "cert.pem") + chain_pem(item_id, include_root=False)
 
 
 def pkcs12(item_id: str, password: str, legacy: bool) -> bytes:
     d = item_dir(item_id)
     if not (d / "key.pem").is_file():
-        raise CAError("Nincs privát kulcs ehhez a tanúsítványhoz.")
+        raise CAError("There is no private key for this certificate.")
     if not password:
-        raise CAError("PKCS#12 exporthoz jelszó kell.")
+        raise CAError("A password is required for PKCS#12 export.")
     cn = load_item(item_id)["info"]["cn"]
     with tempfile.TemporaryDirectory() as tmp:
         chainf = Path(tmp) / "chain.pem"
@@ -1002,7 +1002,7 @@ def zip_bundle(item_id: str) -> bytes:
 
 
 def backup_zip() -> bytes:
-    """Teljes store mentése."""
+    """Backup of the whole store."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for p in sorted(STORE.rglob("*")):
@@ -1014,27 +1014,27 @@ def backup_zip() -> bytes:
 # --------------------------------------------------------------------------- offline key
 
 def encrypted_key(item_id: str, password: str) -> bytes:
-    """Privát kulcs AES-256-tal titkosított PEM-ként (offline tároláshoz)."""
+    """Private key as AES-256 encrypted PEM (for offline storage)."""
     p = item_dir(item_id) / "key.pem"
     if not p.is_file():
-        raise CAError("Nincs privát kulcs ehhez az elemhez.")
+        raise CAError("There is no private key for this item.")
     if len(password or "") < 8:
-        raise CAError("A jelszó legalább 8 karakter legyen.")
+        raise CAError("The password must be at least 8 characters.")
     return run_openssl(["pkey", "-in", str(p), "-aes256", "-passout", "env:KEYPASS"],
                        env={"KEYPASS": password})
 
 
 def remove_key(item_id: str) -> None:
-    """CA privát kulcs végleges eltávolítása (offline CA). Visszahozható: Import oldalon
-    a cert + kulcs újraimportálásával."""
+    """Permanently remove a CA private key (offline CA). It can be restored on the Import page
+    by re-importing the cert + key."""
     it = load_item(item_id)
     if not it or it["kind"] not in CA_KINDS:
-        raise CAError("Kulcs eltávolítása csak CA-nál lehetséges.")
+        raise CAError("Keys can only be removed from CAs.")
     p = item_dir(item_id) / "key.pem"
     if not p.is_file():
-        raise CAError("Ehhez a CA-hoz már nincs kulcs tárolva.")
+        raise CAError("No key is stored for this CA anymore.")
     size = p.stat().st_size
-    with open(p, "r+b") as f:  # felülírás törlés előtt
+    with open(p, "r+b") as f:  # overwrite before deleting
         f.write(secrets.token_bytes(size))
         f.flush()
         os.fsync(f.fileno())
@@ -1044,8 +1044,8 @@ def remove_key(item_id: str) -> None:
 # --------------------------------------------------------------------------- expiry
 
 def expiring_items(days: int, include_expired_days: int = 7) -> list[dict]:
-    """A `days` napon belül lejáró (vagy legfeljebb `include_expired_days` napja lejárt) certek.
-    Kihagyja a már megújítottakat (azonos típus + CN + kiállító, későbbi lejárattal)."""
+    """Certs expiring within `days` days (or expired at most `include_expired_days` days ago).
+    Skips those already renewed (same type + CN + issuer, with a later expiry)."""
     items = list_items()
     out = []
     for it in items:
@@ -1064,17 +1064,17 @@ def expiring_items(days: int, include_expired_days: int = 7) -> list[dict]:
 
 
 def metrics_text() -> str:
-    """Prometheus text formátum."""
+    """Prometheus text format."""
     def esc(v: str) -> str:
         return v.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
-    lines = ["# HELP local_ca_cert_not_after_seconds Tanúsítvány lejárata (unix idő).",
+    lines = ["# HELP local_ca_cert_not_after_seconds Certificate expiry (unix time).",
              "# TYPE local_ca_cert_not_after_seconds gauge"]
     items = list_items()
     for it in items:
         lbl = (f'id="{esc(it["id"])}",cn="{esc(it["info"]["cn"])}",kind="{it["kind"]}",'
                f'source="{it["source"]}",has_key="{str(it["has_key"]).lower()}"')
         lines.append(f'local_ca_cert_not_after_seconds{{{lbl}}} {int(it["info"]["not_after_dt"].timestamp())}')
-    lines += ["# HELP local_ca_certs_total Tárolt tanúsítványok száma típusonként.",
+    lines += ["# HELP local_ca_certs_total Number of stored certificates by type.",
               "# TYPE local_ca_certs_total gauge"]
     for k in KINDS:
         lines.append(f'local_ca_certs_total{{kind="{k}"}} {sum(1 for i in items if i["kind"] == k)}')

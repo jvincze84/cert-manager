@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="hu">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,14 +10,14 @@
 <header>
   <a class="brand" href="{{ url_for('index') }}">🔐 Local CA Manager</a>
   <nav>
-    <a href="{{ url_for('index') }}">Áttekintés</a>
-    <a href="{{ url_for('new', kind='server') }}">+ Szerver cert</a>
-    <a href="{{ url_for('new', kind='client') }}">+ mTLS kliens</a>
-    <a href="{{ url_for('sign') }}">CSR aláírás</a>
+    <a href="{{ url_for('index') }}">Overview</a>
+    <a href="{{ url_for('new', kind='server') }}">+ Server cert</a>
+    <a href="{{ url_for('new', kind='client') }}">+ mTLS client</a>
+    <a href="{{ url_for('sign') }}">Sign CSR</a>
     <a href="{{ url_for('new', kind='intermediate') }}">+ Intermediate CA</a>
     <a href="{{ url_for('new', kind='root') }}">+ Root CA</a>
     <a href="{{ url_for('import_') }}">Import</a>
-    <a href="{{ url_for('notifications') }}">Értesítések</a>
+    <a href="{{ url_for('notifications') }}">Notifications</a>
     <a href="{{ url_for('audit_page') }}">Audit</a>
   </nav>
 </header>
@@ -28,7 +28,7 @@
   {% block content %}{% endblock %}
 </main>
 <script>
-// A navigator.clipboard csak HTTPS-en / localhoston létezik; sima http-n a régi execCommand kell.
+// navigator.clipboard only exists on HTTPS / localhost; plain http needs the old execCommand.
 function copyFallback(t) {
   const ta = document.createElement('textarea');
   ta.value = t; ta.setAttribute('readonly', '');
@@ -50,7 +50,7 @@ document.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click'
   const t = document.getElementById(b.dataset.copy).textContent;
   const ok = await copyText(t);
   if (!b.dataset.label) b.dataset.label = b.textContent;
-  b.textContent = ok ? 'Másolva ✓' : 'Nem sikerült – jelöld ki kézzel';
+  b.textContent = ok ? 'Copied ✓' : 'Failed – select it manually';
   setTimeout(() => b.textContent = b.dataset.label, ok ? 1200 : 2500);
 }));
 document.querySelectorAll('form[data-confirm]').forEach(f => f.addEventListener('submit', e => {
