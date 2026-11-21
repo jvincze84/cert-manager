@@ -2,7 +2,20 @@
 
 ## Screenshots
 
-<img width="1441" height="928" alt="opera_yL0Kvo3RbP" src="https://github.com/user-attachments/assets/a12c8d30-3f93-4f86-85fb-c0e9f6741e8a" />
+<img width="1658" height="905" alt="opera_niBcoNcLlH" src="https://github.com/user-attachments/assets/2b04b11c-5031-4628-a1ef-491e8ea60d89" />
+
+---
+
+<img width="1175" height="875" alt="opera_12ml066OC0" src="https://github.com/user-attachments/assets/398bb018-d4aa-48b6-9b64-ba8e3b70db3e" />
+
+---
+
+<img width="1143" height="809" alt="opera_8uZXxVzyDw" src="https://github.com/user-attachments/assets/802f707c-30c3-4eae-8500-8437478b3415" />
+
+---
+
+<img width="1208" height="1002" alt="opera_cDIq7bQBj0" src="https://github.com/user-attachments/assets/5a7b3ec6-c6d9-4bfd-9301-7bca908a0217" />
+
 
 
 A small self-hosted web UI for running your own private certificate authority (home lab, internal
